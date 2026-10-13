@@ -7,7 +7,7 @@
 ARG PYTHON_IMAGE=python:3.14-slim-trixie
 ARG UV_VERSION=0.11.31
 # Deno powers yt-dlp's JS challenge solving; too old -> "Signature solving failed".
-ARG DENO_VERSION=v2.9.6
+ARG DENO_VERSION=v2.9.7
 # The PO token provider yt-dlp calls for YouTube WebPO tokens. Pinned like every other
 # version here: `latest` makes a rebuild non-reproducible, and layer caching would pin
 # an old binary anyway since the RUN string never changes.
