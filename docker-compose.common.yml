@@ -22,11 +22,11 @@ services:
     environment:
       POSTGRES_USER: ytdl
       POSTGRES_PASSWORD: ytdl
-      POSTGRES_DB: ytdl_hoarder
+      POSTGRES_DB: yt_hoarder
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ytdl -d ytdl_hoarder"]
+      test: ["CMD-SHELL", "pg_isready -U ytdl -d yt_hoarder"]
       interval: 10s
       timeout: 5s
       retries: 5

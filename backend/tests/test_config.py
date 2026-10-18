@@ -28,7 +28,7 @@ class TestDefaultValues:
 
     def test_database_defaults(self):
         settings = DatabaseSettings()
-        assert settings.url == 'postgresql://ytdl:ytdl@localhost:5432/ytdl_hoarder'
+        assert settings.url == 'postgresql://ytdl:ytdl@localhost:5432/yt_hoarder'
 
     def test_storage_defaults(self):
         settings = StorageSettings()
@@ -138,7 +138,7 @@ class TestYamlLoading:
         """Test that empty YAML config uses all defaults."""
         settings = _create_settings_from_yaml({})
 
-        assert settings.database.url == 'postgresql://ytdl:ytdl@localhost:5432/ytdl_hoarder'
+        assert settings.database.url == 'postgresql://ytdl:ytdl@localhost:5432/yt_hoarder'
         assert settings.tasks.purge_on_startup is False
 
     def test_tasks_block(self):
@@ -165,7 +165,7 @@ class TestYamlLoading:
     def test_unknown_yaml_blocks_are_ignored(self):
         """Unrecognized top-level sections in config.yml must not break loading."""
         settings = _create_settings_from_yaml({'some_future_section': {'key': 'value'}})
-        assert settings.database.url == 'postgresql://ytdl:ytdl@localhost:5432/ytdl_hoarder'
+        assert settings.database.url == 'postgresql://ytdl:ytdl@localhost:5432/yt_hoarder'
         assert settings.tasks.purge_on_startup is False
 
 

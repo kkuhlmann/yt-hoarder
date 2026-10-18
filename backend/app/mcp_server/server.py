@@ -443,7 +443,7 @@ def build_mcp_server(
     root = logging.getLogger()
     saved_handlers, saved_level = root.handlers[:], root.level
     try:
-        server = MCPServer('ytdl-hoarder', instructions=INSTRUCTIONS, log_level='WARNING')
+        server = MCPServer('yt-hoarder', instructions=INSTRUCTIONS, log_level='WARNING')
     finally:
         root.handlers[:] = saved_handlers
         root.setLevel(saved_level)

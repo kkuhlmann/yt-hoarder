@@ -12,7 +12,7 @@ import { ThumbnailFilters } from "@/app/_components/ThumbnailFilters"
 import { ServiceWorkerRegistrar } from "@/app/_components/ServiceWorkerRegistrar"
 
 export const metadata: Metadata = {
-  title: "Ytdl-Hoarder",
+  title: "YT-Hoarder",
   description: "Helper for managing YouTube downloads",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, title: "Hoarder", statusBarStyle: "black-translucent" },

@@ -67,7 +67,7 @@ export function AdminRecoveryPanel({ onBack }: { onBack: () => void }) {
     return (
       <>
         <p className="text-text-muted font-mono text-xs mb-4">
-          Recovering an admin account requires access to the machine ytdl-hoarder runs on. A
+          Recovering an admin account requires access to the machine yt-hoarder runs on. A
           one-time code will be written to a file there.
         </p>
 

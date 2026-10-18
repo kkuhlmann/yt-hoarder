@@ -90,19 +90,19 @@ as a pre-release** as well.
 ## Verifying a release
 
 ```bash
-docker buildx imagetools inspect ghcr.io/kkuhlmann/ytdl-hoarder:v0.1.0
+docker buildx imagetools inspect ghcr.io/kkuhlmann/yt-hoarder:v0.1.0
 ```
 
 Expect a manifest list with `linux/amd64` and `linux/arm64` children, plus `unknown/unknown` entries
 (those are the provenance attestations, not a problem). `:0.1.0` and `:latest` must report the same
 digest.
 
-Then exercise the documented pin path in a scratch directory: set `YTDL_HOARDER_TAG=v0.1.0` in
+Then exercise the documented pin path in a scratch directory: set `YT_HOARDER_TAG=v0.1.0` in
 `.env` and run `docker compose -f docker-compose.published.yml pull`.
 
 Both commands must work while logged out, since `setup.sh`'s default published-install path pulls
 anonymously. A `denied` means the package visibility has reverted to private (GitHub → Packages →
-`ytdl-hoarder` → Package settings → Change visibility) — that switch is separate from the
+`yt-hoarder` → Package settings → Change visibility) — that switch is separate from the
 repository's own.
 
 ## Fixing a botched release
@@ -132,6 +132,6 @@ for a one-off image, but it is not a release.
 ## If the repo moves
 
 `release.yml` derives the image name from `${{ github.repository }}` and follows a move on its own.
-`ghcr.io/kkuhlmann/ytdl-hoarder` is hardcoded elsewhere and does not: `setup.sh`,
+`ghcr.io/kkuhlmann/yt-hoarder` is hardcoded elsewhere and does not: `setup.sh`,
 `docker-compose.published.yml`, `.env.sample`, and several files under `docs/`. Sweep for the
 string before the first release from a new repo.

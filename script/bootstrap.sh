@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# ytdl-hoarder — developer environment bootstrap
+# yt-hoarder — developer environment bootstrap
 #
-# Installs HOST-side tooling used for CONTRIBUTING to ytdl-hoarder:
+# Installs HOST-side tooling used for CONTRIBUTING to yt-hoarder:
 #   - uv        + backend Python deps (`uv sync`)   -> pytest / ruff / IDE type-checking
 #   - node deps (`npm ci` in frontend/)             -> lint / build / IDE support
 #   - task      (Taskfile runner)                   -> the `task <name>` shortcuts
@@ -99,10 +99,10 @@ add_summary() { SUMMARY+="  $1"$'\n'; }
 welcome() {
     echo ""
     echo -e "${BOLD}╔══════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BOLD}║        ytdl-hoarder  Dev Environment Setup       ║${RESET}"
+    echo -e "${BOLD}║         yt-hoarder  Dev Environment Setup        ║${RESET}"
     echo -e "${BOLD}╚══════════════════════════════════════════════════╝${RESET}"
     echo ""
-    echo "  This installs host-side tooling for CONTRIBUTING to ytdl-hoarder:"
+    echo "  This installs host-side tooling for CONTRIBUTING to yt-hoarder:"
     echo "  uv + backend deps, frontend deps, the Task runner, and Deno."
     echo ""
     echo -e "  ${DIM}Running the app does NOT need any of this -- it all runs in"

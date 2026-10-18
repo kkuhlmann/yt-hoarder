@@ -1,4 +1,4 @@
-# Contributing to ytdl-hoarder
+# Contributing to yt-hoarder
 
 This guide covers setting up a local development environment and the checks a pull request
 has to pass. For end-user installation, see [`README.md`](README.md). For architecture, task

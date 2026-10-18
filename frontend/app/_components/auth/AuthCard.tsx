@@ -26,7 +26,7 @@ export function AuthCard({
           )}
         >
           <div className={cn("text-center", subtitle ? "mb-8" : "mb-4")}>
-            <h1 className="text-2xl font-mono font-bold text-matrix">ytdl-hoarder</h1>
+            <h1 className="text-2xl font-mono font-bold text-matrix">yt-hoarder</h1>
             {subtitle && <p className="text-text-secondary text-sm mt-2 font-mono">{subtitle}</p>}
             {note && <p className="text-text-muted text-xs mt-1 font-mono">{note}</p>}
           </div>

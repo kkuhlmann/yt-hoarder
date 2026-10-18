@@ -1,6 +1,6 @@
 {
   "id": "/",
-  "name": "Ytdl-Hoarder",
+  "name": "YT-Hoarder",
   "short_name": "Hoarder",
   "description": "Helper for managing YouTube downloads",
   "start_url": "/",

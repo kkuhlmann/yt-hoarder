@@ -2,9 +2,9 @@
 
 <div align="center">
 
-<img src="docs/images/logo-banner.png" alt="ytdl-hoarder logo" width="65%" />
+<img src="docs/images/logo-banner.png" alt="yt-hoarder logo" width="65%" />
 
-# ytdl-hoarder
+# yt-hoarder
 
 **Self-hosted YouTube download manager with automatic subscriptions, local AI transcription, and search across the spoken content of your library.**
 
@@ -17,7 +17,7 @@
 
 </div>
 
-Subscribe to channels and playlists and ytdl-hoarder keeps the library current on a schedule.
+Subscribe to channels and playlists and yt-hoarder keeps the library current on a schedule.
 Downloads can be transcribed on-device with Whisper, which enables semantic search across the
 collection, navigation to any spoken moment, clip extraction, playlist curation, and sharing with
 other users on the instance. It runs entirely on your own hardware under Docker, with no external
@@ -25,7 +25,7 @@ accounts and no cloud dependency.
 
 <div align="center">
 
-<img src="docs/images/hero.gif" alt="A tour of ytdl-hoarder: searching transcripts, playing and clipping media, subscriptions, playlists, and themes" width="100%" />
+<img src="docs/images/hero.gif" alt="A tour of yt-hoarder: searching transcripts, playing and clipping media, subscriptions, playlists, and themes" width="100%" />
 
 </div>
 
@@ -133,11 +133,11 @@ smaller `transcription.whisper_model` there.
 1. **Run the setup script:**
 
    ```bash
-   wget https://raw.githubusercontent.com/kkuhlmann/ytdl-hoarder/main/setup.sh
+   wget https://raw.githubusercontent.com/kkuhlmann/yt-hoarder/main/setup.sh
    bash setup.sh
    ```
 
-   There is no repository to clone. The script creates `./ytdl-hoarder/`, downloads the two Compose
+   There is no repository to clone. The script creates `./yt-hoarder/`, downloads the two Compose
    files it needs, prompts for media storage paths and the Whisper model and CPU threads, generates a
    JWT secret, writes `.env` and `config.yml`, then pulls the release image and starts the app.
 
@@ -168,8 +168,8 @@ to contribute. It is the same script with two extra launch modes. Expect 20–45
 of disk:
 
 ```bash
-git clone https://github.com/kkuhlmann/ytdl-hoarder.git
-cd ytdl-hoarder
+git clone https://github.com/kkuhlmann/yt-hoarder.git
+cd yt-hoarder
 bash setup.sh --launch build-prod   # or build-dev for :3000 + :8000 with hot reload
 ```
 
@@ -241,7 +241,7 @@ it previously passed over. How often subscriptions are checked is set in **Setti
   `VIDEO_PATH`)
 - **Whisper model** — `tiny.en` (fast, ~1 GB) up to `large` (best, ~10 GB)
   (`transcription.whisper_model`)
-- **Release version** — `.env`: `YTDL_HOARDER_TAG`, `latest` by default; pin it to hold a version
+- **Release version** — `.env`: `YT_HOARDER_TAG`, `latest` by default; pin it to hold a version
   through updates
 - **AI agent access (MCP)** — off by default (`mcp.enabled`); `setup.sh --mcp` turns it on. Each user
   then creates a token from the account menu → **MCP Access Tokens**, which shows the exact command to
@@ -302,19 +302,19 @@ subscriptions, downloads, ml) inside the backend, with no separate broker or wor
 
 ## Support
 
-ytdl-hoarder is free, open source, and built in my spare time. If it's useful to you, a ⭐ on GitHub
+yt-hoarder is free, open source, and built in my spare time. If it's useful to you, a ⭐ on GitHub
 helps more than you'd think. And if you'd like to buy me a coffee, it's genuinely appreciated —
 never expected.
 
 <div align="center">
 
-<a href="https://buymeacoffee.com/ytdl.hoarder"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee" /></a>
+<a href="https://buymeacoffee.com/yt.hoarder"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee" /></a>
 
 </div>
 
 ## License
 
-[GNU AGPL v3.0](LICENSE) — running a modified version of ytdl-hoarder as a network service requires
+[GNU AGPL v3.0](LICENSE) — running a modified version of yt-hoarder as a network service requires
 making the source of your modifications available to its users.
 
 The published Docker images include GPL-licensed `ffmpeg`/`ffprobe` binaries from
