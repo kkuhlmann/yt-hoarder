@@ -2,9 +2,9 @@
 
 <div align="center">
 
-<img src="docs/images/logo-banner.png" alt="yt-hoarder logo" width="65%" />
+<img src="docs/images/logo-banner.png" alt="YT-Hoarder logo" width="65%" />
 
-# yt-hoarder
+# YT-Hoarder
 
 **Self-hosted YouTube download manager with automatic subscriptions, local AI transcription, and search across the spoken content of your library.**
 
@@ -17,7 +17,7 @@
 
 </div>
 
-Subscribe to channels and playlists and yt-hoarder keeps the library current on a schedule.
+Subscribe to channels and playlists and YT-Hoarder keeps the library current on a schedule.
 Downloads can be transcribed on-device with Whisper, which enables semantic search across the
 collection, navigation to any spoken moment, clip extraction, playlist curation, and sharing with
 other users on the instance. It runs entirely on your own hardware under Docker, with no external
@@ -25,7 +25,7 @@ accounts and no cloud dependency.
 
 <div align="center">
 
-<img src="docs/images/hero.gif" alt="A tour of yt-hoarder: searching transcripts, playing and clipping media, subscriptions, playlists, and themes" width="100%" />
+<img src="docs/images/hero.gif" alt="A tour of YT-Hoarder: searching transcripts, playing and clipping media, subscriptions, playlists, and themes" width="100%" />
 
 </div>
 
@@ -302,7 +302,7 @@ subscriptions, downloads, ml) inside the backend, with no separate broker or wor
 
 ## Support
 
-yt-hoarder is free, open source, and built in my spare time. If it's useful to you, a ⭐ on GitHub
+YT-Hoarder is free, open source, and built in my spare time. If it's useful to you, a ⭐ on GitHub
 helps more than you'd think. And if you'd like to buy me a coffee, it's genuinely appreciated —
 never expected.
 
@@ -314,7 +314,7 @@ never expected.
 
 ## License
 
-[GNU AGPL v3.0](LICENSE) — running a modified version of yt-hoarder as a network service requires
+[GNU AGPL v3.0](LICENSE) — running a modified version of YT-Hoarder as a network service requires
 making the source of your modifications available to its users.
 
 The published Docker images include GPL-licensed `ffmpeg`/`ffprobe` binaries from
