@@ -15,7 +15,7 @@ import { useSyncExternalStore } from "react"
  * `writeStored` to notify subscribers in this one.
  */
 
-const CHANGE_EVENT = "ytdl-hoarder:stored-value"
+const CHANGE_EVENT = "yt-hoarder:stored-value"
 
 export function writeStored(key: string, value: string) {
   localStorage.setItem(key, value)

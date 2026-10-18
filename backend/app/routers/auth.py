@@ -228,7 +228,7 @@ async def forgot_password(body: UsernameRequest):
 async def request_admin_recovery(body: UsernameRequest):
     """Write a single-use recovery code to a file on the server's filesystem.
 
-    Recovering an admin account requires access to the machine ytdl-hoarder runs on:
+    Recovering an admin account requires access to the machine yt-hoarder runs on:
     the code is only ever written to disk, never returned here or logged. The response
     is identical for unknown and non-admin usernames so it cannot be used to discover
     which accounts are admins.

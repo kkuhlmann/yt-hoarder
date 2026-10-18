@@ -5,7 +5,7 @@
  * a quoting slip here surfaces as a confusing error in someone else's tool.
  */
 
-export const MCP_SERVER_NAME = "ytdl-hoarder"
+export const MCP_SERVER_NAME = "yt-hoarder"
 
 /**
  * The MCP endpoint as an absolute URL that an agent on another machine can reach.

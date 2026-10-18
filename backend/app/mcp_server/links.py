@@ -1,4 +1,4 @@
-"""Links in MCP results: back to the source at a timestamp, and into ytdl-hoarder's player."""
+"""Links in MCP results: back to the source at a timestamp, and into yt-hoarder's player."""
 
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit

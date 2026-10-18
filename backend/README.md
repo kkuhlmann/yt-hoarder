@@ -1,4 +1,4 @@
-# ytdl-hoarder backend
+# yt-hoarder backend
 
 FastAPI app plus an in-process task orchestrator driving yt-dlp downloads,
 transcription, and clipping. See the repository root [README](../README.md)

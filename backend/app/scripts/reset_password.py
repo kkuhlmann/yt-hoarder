@@ -34,7 +34,7 @@ def _prompt_for_password() -> str | None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Reset a ytdl-hoarder user's password.")
+    parser = argparse.ArgumentParser(description="Reset a yt-hoarder user's password.")
     parser.add_argument('username')
     args = parser.parse_args()
 

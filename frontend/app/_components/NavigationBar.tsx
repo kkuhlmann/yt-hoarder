@@ -194,7 +194,7 @@ export function NavigationBar() {
               overflows visibly, so always-visible children spill over the nav. */}
           <div className="flex items-center gap-2 min-w-0">
             <span className="hidden sm:inline text-sm font-mono font-semibold text-matrix">
-              ytdl-hoarder
+              yt-hoarder
             </span>
             {appVersion && (
               <span className="hidden md:inline-block text-xs text-text-muted font-mono">

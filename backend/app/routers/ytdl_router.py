@@ -310,7 +310,7 @@ async def _get_media_for_task(task_record_id: int) -> MediaDetails | None:
 
 @router.get('/version')
 async def get_version_info():
-    """Get version information for ytdl-hoarder and yt-dlp"""
+    """Get version information for yt-hoarder and yt-dlp"""
     return {
         'app_version': get_app_version(),
         'ytdlp_version': yt_dlp.version.__version__,

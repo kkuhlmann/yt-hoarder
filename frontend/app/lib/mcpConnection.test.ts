@@ -17,7 +17,7 @@ describe("mcpServerUrl", () => {
 describe("claudeCodeCommand", () => {
   it("registers the server for every project with the token as a header", () => {
     expect(claudeCodeCommand("http://nas:8000/api/mcp", "ytdlh_abc")).toBe(
-      'claude mcp add --scope user --transport http ytdl-hoarder http://nas:8000/api/mcp ' +
+      'claude mcp add --scope user --transport http yt-hoarder http://nas:8000/api/mcp ' +
         '--header "Authorization: Bearer ytdlh_abc"'
     )
   })
@@ -27,7 +27,7 @@ describe("mcpServersJson", () => {
   it("is valid JSON in the mcpServers shape", () => {
     expect(JSON.parse(mcpServersJson("http://nas:8000/api/mcp", "ytdlh_abc"))).toEqual({
       mcpServers: {
-        "ytdl-hoarder": {
+        "yt-hoarder": {
           url: "http://nas:8000/api/mcp",
           headers: { Authorization: "Bearer ytdlh_abc" },
         },

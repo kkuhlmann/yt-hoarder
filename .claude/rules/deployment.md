@@ -28,7 +28,7 @@ Images build natively for **both amd64 and arm64**; nothing is pinned to an arch
 `.github/workflows/release.yml` pushes a single multi-arch manifest to GHCR on `v*` tags, then opens
 a GitHub Release page for the tag ([docs/RELEASING.md](../../docs/RELEASING.md)).
 `docker-compose.published.yml` is the consumer of that manifest and the **default install path** —
-`setup.sh` pulls `ghcr.io/kkuhlmann/ytdl-hoarder:latest` unless told otherwise. Nine things that are
+`setup.sh` pulls `ghcr.io/kkuhlmann/yt-hoarder:latest` unless told otherwise. Nine things that are
 easy to undo by accident:
 
 - **`docker-compose.published.yml` must never gain a `build:` block.** With one, a failed pull stops
@@ -95,7 +95,7 @@ passed into the backend is `FORWARDED_ALLOW_IPS`, via an explicit `environment:`
 files. Adding a new env-tunable setting therefore means adding it to `environment:` too — otherwise
 it silently does nothing in every containerized deployment. `.env` holds exactly what cannot live in
 `config.yml` because it's consumed outside the backend process: the two host media paths (Compose
-resolves the bind-mount source before the container exists), `YTDL_HOARDER_IMAGE`/`YTDL_HOARDER_TAG`
+resolves the bind-mount source before the container exists), `YT_HOARDER_IMAGE`/`YT_HOARDER_TAG`
 (they name the image, so they must resolve before there is a container to configure),
 `NEXT_PUBLIC_BACKEND_API` and `ALLOWED_DEV_ORIGINS` (the Next.js dev server), and
 `FORWARDED_ALLOW_IPS` (uvicorn itself, no `config.py` key). Everything else belongs in `config.yml`.
@@ -111,4 +111,4 @@ startup, nested Pydantic models for validation. Import with `from config import 
 Three `.env` values that bite:
 - `NEXT_PUBLIC_BACKEND_API` — dev-mode only, and **normally empty**: `app/lib/api.ts` then derives the API origin from `window.location` at runtime, which is what lets one dev server answer on localhost, a LAN IP and a Tailscale name at once. It is a `docker-compose.dev.yml` **`environment:` entry, not a build arg** — deliberately, since an ARG→ENV bake is what used to force a `--build` (and a setup-time prompt) whenever the address changed. Set it only when the API isn't on :8000 of the browsed host (reverse proxy, TLS). Prod and published hardcode `/api` in `Dockerfile.prod` and are unaffected; `api.ts` also guards on `NODE_ENV === 'production'` so a prod build that somehow lost that ENV falls back to same-origin rather than to `:8000`.
 - `ALLOWED_DEV_ORIGINS` — comma-separated escape hatch for Next 16's `allowedDevOrigins` enforcement, now needed only for hosts no wildcard can match (single-label names, IPv6 literals).
-- `YTDL_HOARDER_TAG` — read **only** by `docker-compose.published.yml`, so setting it under prod or dev does nothing at all. `setup.sh --image-tag` writes it here rather than using it once, so a later `docker compose pull` stays on the release the user chose.
+- `YT_HOARDER_TAG` — read **only** by `docker-compose.published.yml`, so setting it under prod or dev does nothing at all. `setup.sh --image-tag` writes it here rather than using it once, so a later `docker compose pull` stays on the release the user chose.

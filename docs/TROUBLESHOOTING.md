@@ -6,8 +6,8 @@ Common problems and their fixes. For configuration reference see
 ## Installation and updates
 
 **Pulling the image fails with `denied` or `manifest unknown`.** Either that release isn't published
-yet, the tag in `YTDL_HOARDER_TAG` doesn't exist, or the machine can't reach `ghcr.io` (offline,
-proxy, DNS). Check the [releases page](https://github.com/kkuhlmann/ytdl-hoarder/releases) for a tag
+yet, the tag in `YT_HOARDER_TAG` doesn't exist, or the machine can't reach `ghcr.io` (offline,
+proxy, DNS). Check the [releases page](https://github.com/kkuhlmann/yt-hoarder/releases) for a tag
 that exists, or build from source with `docker compose -f docker-compose.prod.yml up -d --build`.
 
 **The app doesn't update itself.** This is deliberate. `latest` is resolved when you pull, not on
@@ -94,7 +94,7 @@ so the download arrow, the signal icon and the database icon are all absent. Che
    [CONFIGURATION.md](CONFIGURATION.md#what-offline-mode-requires). Use `task prod` or
    `task published`.
 3. **Is your image new enough to include the feature?** An install pinned to an older
-   `YTDL_HOARDER_TAG` will not have it.
+   `YT_HOARDER_TAG` will not have it.
 
 **Offline mode is on but the library is empty.** The toggle filters the library to what is stored on
 this device; it does not fetch anything. Download items first — the arrow on a media row, or the
@@ -165,7 +165,7 @@ navigation bar. Changing or resetting a password signs that account out on every
 
 ### An admin forgot their password
 
-Recovery requires access to the machine ytdl-hoarder runs on; that requirement stands in for an email
+Recovery requires access to the machine yt-hoarder runs on; that requirement stands in for an email
 inbox. Click *Admin account recovery* on the sign-in page and enter the admin username. A single-use
 code is written to `data/admin-recovery.txt` inside the install directory:
 

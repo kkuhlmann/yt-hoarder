@@ -77,7 +77,7 @@ class DatabaseSettings(BaseSettings):
     )
 
     url: str = Field(
-        default='postgresql://ytdl:ytdl@localhost:5432/ytdl_hoarder',
+        default='postgresql://ytdl:ytdl@localhost:5432/yt_hoarder',
         description='PostgreSQL connection URL',
     )
 
@@ -189,7 +189,7 @@ class McpSettings(BaseSettings):
     public_url: str = Field(
         default='',
         description=(
-            'The address you open ytdl-hoarder at (e.g. https://hoarder.example.com), '
+            'The address you open yt-hoarder at (e.g. https://hoarder.example.com), '
             'used to build the in-app links in search results. Empty derives it from '
             'the address the agent connected to, which is wrong behind a proxy that '
             'rewrites the Host header.'

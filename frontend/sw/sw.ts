@@ -28,7 +28,7 @@ declare const self: ServiceWorkerGlobalScope
 declare const __BUILD_ID__: string
 declare const __PRECACHE__: string[]
 
-const CACHE_NAME = `ytdl-hoarder-shell-${__BUILD_ID__}`
+const CACHE_NAME = `yt-hoarder-shell-${__BUILD_ID__}`
 const SHELL_URL = "/"
 
 self.addEventListener("install", (event) => {
@@ -43,7 +43,7 @@ self.addEventListener("activate", (event) => {
       const names = await caches.keys()
       await Promise.all(
         names
-          .filter((name) => name.startsWith("ytdl-hoarder-shell-") && name !== CACHE_NAME)
+          .filter((name) => name.startsWith("yt-hoarder-shell-") && name !== CACHE_NAME)
           .map((name) => caches.delete(name))
       )
       await self.clients.claim()

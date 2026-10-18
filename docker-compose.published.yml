@@ -8,8 +8,8 @@
 # unavailable — and it would build the working tree, not the released commit.
 # Build from source with docker-compose.prod.yml instead.
 #
-# Pin a release with YTDL_HOARDER_TAG in .env (e.g. v0.1.0); the default `latest`
-# follows the newest release. YTDL_HOARDER_IMAGE only needs changing for a fork
+# Pin a release with YT_HOARDER_TAG in .env (e.g. v0.1.0); the default `latest`
+# follows the newest release. YT_HOARDER_IMAGE only needs changing for a fork
 # or a registry mirror. The defaults are repeated below so an .env written before
 # these variables existed still resolves.
 #
@@ -31,7 +31,7 @@ services:
     extends:
       file: docker-compose.common.yml
       service: backend-prod-common
-    image: ${YTDL_HOARDER_IMAGE:-ghcr.io/kkuhlmann/ytdl-hoarder}:${YTDL_HOARDER_TAG:-latest}
+    image: ${YT_HOARDER_IMAGE:-ghcr.io/kkuhlmann/yt-hoarder}:${YT_HOARDER_TAG:-latest}
     # extends does not carry depends_on — it has to be declared here.
     depends_on:
       postgres:

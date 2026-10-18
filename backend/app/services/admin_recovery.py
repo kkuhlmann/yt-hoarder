@@ -2,7 +2,7 @@
 
 An admin who has lost their password proves control of the *host machine* rather than
 of an email inbox: the recovery code is written to a file under the /data bind mount,
-so retrieving it requires access to the server ytdl-hoarder runs on.
+so retrieving it requires access to the server yt-hoarder runs on.
 
 The file holds a single-use code, never a password that has already been applied. If it
 carried a live credential, any anonymous caller could reset the admin's account on demand
@@ -18,7 +18,7 @@ from logger import logger
 
 RECOVERY_FILE_PATH = '/data/admin-recovery.txt'
 
-_TEMPLATE = """ytdl-hoarder admin account recovery
+_TEMPLATE = """yt-hoarder admin account recovery
 ===================================
 
   user:    {username}
@@ -29,7 +29,7 @@ Enter this code on the "Admin account recovery" screen to choose a new password.
 It can be used once. This file is deleted as soon as it is used, and the code stops
 working at the expiry above whether or not it was used.
 
-If you did not request this, someone with network access to ytdl-hoarder did. They
+If you did not request this, someone with network access to yt-hoarder did. They
 cannot do anything without this file, so deleting it is enough.
 """
 

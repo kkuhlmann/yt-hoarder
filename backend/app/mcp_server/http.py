@@ -23,7 +23,7 @@ from repositories import access_tokens as token_repo
 if TYPE_CHECKING:
     from mcp.server import MCPServer
 
-_UNAUTHORIZED_HEADERS = {'WWW-Authenticate': 'Bearer realm="ytdl-hoarder", error="invalid_token"'}
+_UNAUTHORIZED_HEADERS = {'WWW-Authenticate': 'Bearer realm="yt-hoarder", error="invalid_token"'}
 
 
 def bearer_token(header: str | None) -> str | None:

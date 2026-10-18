@@ -65,7 +65,7 @@ describe("AccessTokensDialog", () => {
       name: "agent",
       expires_in_days: null,
     })
-    expect(screen.getByText(/claude mcp add --scope user --transport http ytdl-hoarder/)).toBeDefined()
+    expect(screen.getByText(/claude mcp add --scope user --transport http yt-hoarder/)).toBeDefined()
 
     fireEvent.click(screen.getByRole("button", { name: "Done" }))
     expect(screen.queryByText("ytdlh_secret")).toBeNull()

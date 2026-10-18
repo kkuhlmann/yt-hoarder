@@ -1,4 +1,4 @@
-# ytdl-hoarder Configuration
+# yt-hoarder Configuration
 #
 # Copy this file to config.yml and customize as needed. This is the single
 # source of application settings; .env is Docker Compose's variable file and is
@@ -16,7 +16,7 @@
 
 # PostgreSQL database connection
 database:
-  url: postgresql://ytdl:ytdl@postgres:5432/ytdl_hoarder
+  url: postgresql://ytdl:ytdl@postgres:5432/yt_hoarder
 
 # Media storage paths *inside* the container. Leave these alone — they are the
 # targets the compose files bind-mount onto, so pointing them somewhere else
@@ -104,7 +104,7 @@ mcp:
   # Off by default: while disabled /api/mcp answers 404 and no token can be created.
   enabled: false
 
-  # The address you open ytdl-hoarder at, used for the in-app links (?media=&t=)
+  # The address you open yt-hoarder at, used for the in-app links (?media=&t=)
   # in search results. Empty uses the address each agent connected with, which is
   # wrong behind a proxy that rewrites the Host header or when agents reach the
   # app under a different name than your browser does.

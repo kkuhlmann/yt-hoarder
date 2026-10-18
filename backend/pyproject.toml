@@ -1,5 +1,5 @@
 [project]
-name = "ytdl-hoarder-backend"
+name = "yt-hoarder-backend"
 version = "0.1.1"
 description = "Backend API with in-process task orchestrator"
 readme = "README.md"

@@ -12,7 +12,7 @@ and is never read by the application; it holds only values consumed outside the 
 | Variable | Consumed by | Purpose |
 |---|---|---|
 | `AUDIO_ONLY_PATH`, `VIDEO_PATH` | Compose | Host media directories, resolved before the container exists |
-| `YTDL_HOARDER_IMAGE`, `YTDL_HOARDER_TAG` | Compose | Which image and release to run |
+| `YT_HOARDER_IMAGE`, `YT_HOARDER_TAG` | Compose | Which image and release to run |
 | `NEXT_PUBLIC_BACKEND_API` | Next.js dev server | Overrides the API address the dev UI calls (dev mode only; normally empty) |
 | `ALLOWED_DEV_ORIGINS` | Next.js dev server | Extra hosts permitted to reach dev resources |
 | `FORWARDED_ALLOW_IPS` | uvicorn | Proxy addresses whose `X-Forwarded-For` is trusted |
@@ -60,7 +60,7 @@ than throttling.
 
 ## Release pinning
 
-`YTDL_HOARDER_TAG` in `.env` defaults to `latest`. Pin it (for example `v0.1.0`) to hold a version
+`YT_HOARDER_TAG` in `.env` defaults to `latest`. Pin it (for example `v0.1.0`) to hold a version
 through updates. Pinning *backwards* to an older release after a newer one has run its database
 migrations may fail to start, since migrations are not guaranteed reversible — back up with
 `task db:backup` first. The variable is read only by `docker-compose.published.yml`; the
@@ -143,7 +143,7 @@ reached.
 
 ## AI agents (MCP)
 
-ytdl-hoarder can serve an [MCP](https://modelcontextprotocol.io) endpoint so an AI agent you run
+yt-hoarder can serve an [MCP](https://modelcontextprotocol.io) endpoint so an AI agent you run
 yourself can research your transcript library: *"What did this channel say about X in 2025?"*,
 answered with a summary, citations, upload dates and links to the exact second. The app never calls
 an AI service; connect whichever MCP client you like, such as Claude Code, LM Studio or Cursor.
@@ -180,12 +180,12 @@ setup: a `claude mcp add` command and an `mcp.json` snippet (an `mcpServers` ent
 header) of the kind LM Studio and Cursor read. With Claude Code, for example:
 
 ```bash
-claude mcp add --scope user --transport http ytdl-hoarder https://<your-host>/api/mcp \
+claude mcp add --scope user --transport http yt-hoarder https://<your-host>/api/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
 Use a model that supports tool calling. The server also offers a `research` prompt for a
-summary-plus-evidence-table answer; Claude Code lists it as `/ytdl-hoarder:research`.
+summary-plus-evidence-table answer; Claude Code lists it as `/yt-hoarder:research`.
 
 **The endpoint address** is `/api/mcp` on a production or published install (`http://<host>:8000/api/mcp`
 by default) and `http://<host>:8000/mcp` in dev mode. Use the address another machine reaches the
@@ -202,7 +202,7 @@ across an untrusted network.
 | `get_transcript` | Reads a video's transcript around a moment, or page by page |
 
 **`public_url` and in-app links.** Every result links both to the source (`youtube.com/…&t=754`) and
-into ytdl-hoarder's own player (`/?media=123&t=754`), which also works for audio and for videos since
+into yt-hoarder's own player (`/?media=123&t=754`), which also works for audio and for videos since
 removed from YouTube. With `public_url` empty, in-app links use the address the agent connected to,
 which is right when your browser and the agent reach the server by the same name. Set it to the
 address you open the app at when they differ, or when a reverse proxy rewrites the `Host` header.

@@ -1,7 +1,7 @@
 ---
 name: diagnosing-yt-dlp-download-failures
 description: >-
-  Use when a yt-dlp download in ytdl-hoarder fails, comes back empty/zero-byte, or throws
+  Use when a yt-dlp download in yt-hoarder fails, comes back empty/zero-byte, or throws
   "Signature solving failed", "Requested format is not available", "unable to download video
   data: HTTP Error 403", repeated HTTP 403s, or rate-limit-like blocking — before assuming it's a
   player-client misconfiguration OR reaching for the throttling settings. Also use when a video
@@ -12,7 +12,7 @@ description: >-
 # Diagnosing yt-dlp Download Failures
 
 ## Overview
-ytdl-hoarder wraps yt-dlp; downloads can fail for several independent reasons — a missing/stale Deno JS runtime, a stale yt-dlp/yt-dlp-ejs pin, rate limiting, or player-client selection. Player-client tweaking is only one possible fix and is usually NOT the root cause — check cheaper causes first.
+yt-hoarder wraps yt-dlp; downloads can fail for several independent reasons — a missing/stale Deno JS runtime, a stale yt-dlp/yt-dlp-ejs pin, rate limiting, or player-client selection. Player-client tweaking is only one possible fix and is usually NOT the root cause — check cheaper causes first.
 
 **Establish the PHASE before anything else.** It splits the causes cleanly and the two halves have almost nothing in common:
 
@@ -36,7 +36,7 @@ The app logs `Download <task_id>: attempt=N cookies=… clients=[…]` (`backend
 
 ## Not a Download Failure: post-live / "still processing" deferrals
 
-`Deferring … — not released yet: Video is still processing after live stream` (also "currently live" / "upcoming premiere") is **not** a yt-dlp failure — it's ytdl-hoarder's release-detection gate (`is_video_ready_for_download`, `backend/app/ytdlp/info.py`) deliberately deferring. Skip the download-failure checklist below.
+`Deferring … — not released yet: Video is still processing after live stream` (also "currently live" / "upcoming premiere") is **not** a yt-dlp failure — it's yt-hoarder's release-detection gate (`is_video_ready_for_download`, `backend/app/ytdlp/info.py`) deliberately deferring. Skip the download-failure checklist below.
 
 **The trap:** `post_live` is NOT proof the VOD is unavailable. yt-dlp keeps a finished livestream flagged `live_status=post_live` for hours/days after a complete, downloadable VOD already exists — `availability` can read `public` and the video be fully watchable meanwhile. So "still `post_live` → just wait" is usually WRONG for a stream that ended more than a few minutes ago.
 
@@ -46,7 +46,7 @@ yt-dlp -F --skip-download "<url>"
 ```
 A normal resolution ladder with DASH VOD formats (`http_dash_segments`, e.g. `137`/`136`/`135`…) — not just a bare live `m3u8` — means it IS downloadable despite the `post_live` label. **Zero** real audio/video formats → genuinely still processing; the deferral is correct, wait.
 
-The gate treats `post_live` as ready once real formats exist (only genuine live/upcoming, or a just-ended stream with no formats yet, stays deferred). A build that blanket-defers *any* `post_live` regardless of formats is running stale **ytdl-hoarder app code** (this is app logic in `ytdlp/info.py`, not a yt-dlp version) — rebuild/restart the backend to pick up the current gate. A stuck NOT_READY item clears on the next subscription scan (~10 min) or via manual Retry; no DB surgery.
+The gate treats `post_live` as ready once real formats exist (only genuine live/upcoming, or a just-ended stream with no formats yet, stays deferred). A build that blanket-defers *any* `post_live` regardless of formats is running stale **yt-hoarder app code** (this is app logic in `ytdlp/info.py`, not a yt-dlp version) — rebuild/restart the backend to pick up the current gate. A stuck NOT_READY item clears on the next subscription scan (~10 min) or via manual Retry; no DB surgery.
 
 ## Download-phase 403: transfer fails after extraction succeeds
 
@@ -56,7 +56,7 @@ The gate treats `post_live` as ready once real formats exist (only genuine live/
 
 ```bash
 COMPOSE=docker-compose.dev.yml   # or docker-compose.published.yml / docker-compose.prod.yml
-docker compose -f $COMPOSE exec -T postgres psql -U ytdl -d ytdl_hoarder -x -c \
+docker compose -f $COMPOSE exec -T postgres psql -U ytdl -d yt_hoarder -x -c \
   "SELECT task_id, status, retry_count, status_message, download_job_url
    FROM task_records WHERE status IN ('RETRY','FAILED') ORDER BY updated_at DESC LIMIT 5;"
 docker compose -f $COMPOSE logs backend --tail 300 > /tmp/403.log

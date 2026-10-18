@@ -3,7 +3,7 @@
 # stages. Both build from the project root:
 #   --target production  consolidated frontend + backend image (docker-compose.prod.yml)
 #   --target worker      backend only, source bind-mounted over /app (docker-compose.dev.yml)
-# e.g. docker build -f Dockerfile.prod --target production -t ytdl-hoarder:production .
+# e.g. docker build -f Dockerfile.prod --target production -t yt-hoarder:production .
 ARG PYTHON_IMAGE=python:3.14-slim-trixie
 ARG UV_VERSION=0.11.31
 # Deno powers yt-dlp's JS challenge solving; too old -> "Signature solving failed".

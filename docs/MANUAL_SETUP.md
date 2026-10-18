@@ -33,6 +33,6 @@ docker compose -f docker-compose.published.yml pull && docker compose -f docker-
 # With Task installed: `task update`
 ```
 
-To install a specific release rather than the newest, set `YTDL_HOARDER_TAG` in `.env` (for example
+To install a specific release rather than the newest, set `YT_HOARDER_TAG` in `.env` (for example
 `v0.1.0`) before starting. See [CONFIGURATION.md](CONFIGURATION.md#release-pinning) for the caveats
 around pinning backwards.

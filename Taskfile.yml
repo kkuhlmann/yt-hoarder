@@ -1,14 +1,16 @@
 version: '3'
 
-# Common tasks for ytdl-hoarder development and operations
+# Common tasks for yt-hoarder development and operations
 # Install Task: https://taskfile.dev/installation/
 # Usage: task <taskname>
 
 vars:
   DATA_DIR: ./data
   # Neither compose file sets an explicit `name:`, so the project name — and thus the
-  # volume prefix — comes from the directory. Renaming the directory breaks this.
-  POSTGRES_VOLUME: ytdl-hoarder_postgres-data
+  # volume prefix — comes from the directory (or COMPOSE_PROJECT_NAME). Asked of Compose
+  # rather than hardcoded so a renamed checkout can't point db:reset at a volume that
+  # isn't there. Like COMPOSE_FILE below, it is expanded by the shell at use.
+  POSTGRES_VOLUME: "$(docker compose -f docker-compose.prod.yml config 2>/dev/null | sed -n 's/^name: //p')_postgres-data"
   # There is no default docker-compose.yml, so a bare `docker compose exec` fails with
   # "no configuration file provided" — every exec-style target has to name a file. This
   # expands to a shell substitution rather than being resolved here, so it costs nothing
@@ -141,10 +143,10 @@ tasks:
   db:backup:
     desc: Backup the PostgreSQL database
     vars:
-      BACKUP_FILE: '{{.DATA_DIR}}/backups/ytdl-hoarder-{{now | date "20060102-150405"}}.sql'
+      BACKUP_FILE: '{{.DATA_DIR}}/backups/yt-hoarder-{{now | date "20060102-150405"}}.sql'
     cmds:
       - mkdir -p {{.DATA_DIR}}/backups
-      - docker compose -f {{.COMPOSE_FILE}} exec -T postgres pg_dump -U ytdl ytdl_hoarder -f /tmp/ytdl-backup.sql
+      - docker compose -f {{.COMPOSE_FILE}} exec -T postgres pg_dump -U ytdl yt_hoarder -f /tmp/ytdl-backup.sql
       - docker compose -f {{.COMPOSE_FILE}} cp postgres:/tmp/ytdl-backup.sql {{.BACKUP_FILE}}
       - docker compose -f {{.COMPOSE_FILE}} exec -T postgres rm -f /tmp/ytdl-backup.sql
       - echo "Database backed up to {{.BACKUP_FILE}}"
@@ -154,7 +156,7 @@ tasks:
     prompt: This will OVERWRITE current data. Continue?
     cmds:
       - docker compose -f {{.COMPOSE_FILE}} cp {{.DATA_DIR}}/{{.CLI_ARGS}} postgres:/tmp/ytdl-restore.sql
-      - docker compose -f {{.COMPOSE_FILE}} exec -T postgres psql -U ytdl -d ytdl_hoarder -f /tmp/ytdl-restore.sql
+      - docker compose -f {{.COMPOSE_FILE}} exec -T postgres psql -U ytdl -d yt_hoarder -f /tmp/ytdl-restore.sql
       - docker compose -f {{.COMPOSE_FILE}} exec -T postgres rm -f /tmp/ytdl-restore.sql
       - echo "Database restored from {{.CLI_ARGS}}"
 
@@ -166,7 +168,7 @@ tasks:
   db:shell:
     desc: Open a psql shell to the database
     cmds:
-      - docker compose -f {{.COMPOSE_FILE}} exec postgres psql -U ytdl ytdl_hoarder
+      - docker compose -f {{.COMPOSE_FILE}} exec postgres psql -U ytdl yt_hoarder
 
   # === Task Queue Management ===
   # Task state lives entirely in PostgreSQL (task_records). Cancel pending

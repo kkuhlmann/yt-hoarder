@@ -23,7 +23,7 @@ services:
     extends:
       file: docker-compose.common.yml
       service: backend-common
-    image: ytdl-hoarder:backend-dev
+    image: yt-hoarder:backend-dev
     build:
       context: .
       dockerfile: Dockerfile.prod

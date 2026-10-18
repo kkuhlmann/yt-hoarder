@@ -13,7 +13,7 @@
 
 import { CHUNK_SIZE, chunkIndexRange, sliceWithinChunks, type ByteRange } from "./offlineRange"
 
-const DB_NAME = "ytdl-hoarder-offline"
+const DB_NAME = "yt-hoarder-offline"
 // Bumping this is the whole migration: every store below is created under an
 // `if (!contains)` guard, so an upgrade only ever adds what a version lacks.
 const DB_VERSION = 2

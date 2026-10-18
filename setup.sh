@@ -18,18 +18,18 @@ fi
 # ── Upstream Sources ────────────────────────────────────────────────────────
 
 # Where a run that isn't sitting in a checkout fetches what it needs. Overridable
-# for the same reason YTDL_HOARDER_IMAGE is — a fork or a mirror.
-RAW_BASE="${YTDL_HOARDER_RAW_BASE:-https://raw.githubusercontent.com/kkuhlmann/ytdl-hoarder}"
-CLONE_URL="https://github.com/kkuhlmann/ytdl-hoarder.git"
+# for the same reason YT_HOARDER_IMAGE is — a fork or a mirror.
+RAW_BASE="${YT_HOARDER_RAW_BASE:-https://raw.githubusercontent.com/kkuhlmann/yt-hoarder}"
+CLONE_URL="https://github.com/kkuhlmann/yt-hoarder.git"
 # Human-readable docs, not RAW_BASE: a wget install has no local docs/ to point at.
-DOCS_BASE="https://github.com/kkuhlmann/ytdl-hoarder/blob/main/docs"
+DOCS_BASE="https://github.com/kkuhlmann/yt-hoarder/blob/main/docs"
 
 # docker-compose.published.yml is useless on its own: every service in it uses
 # `extends: file: docker-compose.common.yml`. config.sample.yml comes along as the
 # reference for the settings this wizard doesn't prompt for.
 BOOTSTRAP_FILES=(docker-compose.common.yml docker-compose.published.yml config.sample.yml)
 
-DEFAULT_INSTALL_DIR="./ytdl-hoarder"
+DEFAULT_INSTALL_DIR="./yt-hoarder"
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -55,15 +55,15 @@ print_usage() {
     cat <<EOF
 Usage: ./setup.sh [OPTIONS]
 
-Configure ytdl-hoarder by generating .env and config.yml, then start it.
+Configure yt-hoarder by generating .env and config.yml, then start it.
 Run with no options for the interactive wizard; pass flags to skip prompts.
 
 Run from a source checkout, it uses that checkout. Downloaded on its own, it
-creates ./ytdl-hoarder and fetches the compose files it needs into it.
+creates ./yt-hoarder and fetches the compose files it needs into it.
 
 Options:
-  --audio-path <path>        Audio files storage path (default: ~/ytdl-hoarder/audio)
-  --video-path <path>        Video files storage path (default: ~/ytdl-hoarder/video)
+  --audio-path <path>        Audio files storage path (default: ~/yt-hoarder/audio)
+  --video-path <path>        Video files storage path (default: ~/yt-hoarder/video)
   --create-dirs               Auto-create missing storage directories
   --no-create-dirs             Don't create missing storage directories
   --whisper-model <name>      tiny.en | small.en | medium.en | large (default: tiny.en)
@@ -88,9 +88,9 @@ Options:
                               'prod' and 'dev' are accepted as synonyms for
                               build-prod and build-dev.
   --image-tag <tag>           Release to install with --launch published (default: latest,
-                              e.g. v0.1.0). Saved to .env as YTDL_HOARDER_TAG.
+                              e.g. v0.1.0). Saved to .env as YT_HOARDER_TAG.
   --install-dir <path>        Where to install when not run from a source checkout
-                              (default: ./ytdl-hoarder). Ignored inside a checkout.
+                              (default: ./yt-hoarder). Ignored inside a checkout.
   --compose-ref <ref>         Git ref to fetch the compose files from (default: main, or
                               the matching tag when --image-tag names a version)
   -y, --yes                   Non-interactive: use defaults for any option not passed above
@@ -99,7 +99,7 @@ Options:
 Examples:
   ./setup.sh -y
   ./setup.sh --launch published --image-tag v0.1.0
-  ./setup.sh -y --install-dir ~/media/ytdl-hoarder
+  ./setup.sh -y --install-dir ~/media/yt-hoarder
   ./setup.sh --audio-path /mnt/audio --video-path /mnt/video --whisper-model small.en
   ./setup.sh -y --mcp --public-url https://hoarder.example.com
 EOF
@@ -407,7 +407,7 @@ require_source_for_build_modes() {
     echo "  The published image needs none of it. To build anyway:"
     echo ""
     echo -e "    ${BOLD}git clone ${CLONE_URL}${RESET}"
-    echo -e "    ${BOLD}cd ytdl-hoarder && bash setup.sh --launch ${ARG_LAUNCH}${RESET}"
+    echo -e "    ${BOLD}cd yt-hoarder && bash setup.sh --launch ${ARG_LAUNCH}${RESET}"
     echo ""
     exit 1
 }
@@ -449,10 +449,10 @@ welcome() {
     echo '_/\/\/\/\_________________________________________________________________________________________________________________________________     '
     echo ""
     echo -e "${BOLD}╔══════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BOLD}║            ytdl-hoarder  Quick Setup             ║${RESET}"
+    echo -e "${BOLD}║             yt-hoarder  Quick Setup              ║${RESET}"
     echo -e "${BOLD}╚══════════════════════════════════════════════════╝${RESET}"
     echo ""
-    echo "  This script configures ytdl-hoarder by creating your .env and"
+    echo "  This script configures yt-hoarder by creating your .env and"
     echo "  config.yml with sensible defaults, then starts it -- by default"
     echo "  from the prebuilt release image, so there is nothing to compile."
     echo ""
@@ -600,20 +600,20 @@ configure_storage() {
         AUDIO_ONLY_PATH=$(expand_path "$ARG_AUDIO_PATH")
         print_success "  Audio files path: ${AUDIO_ONLY_PATH} (from --audio-path)"
     elif [[ -n "$NON_INTERACTIVE" ]]; then
-        AUDIO_ONLY_PATH=$(expand_path "$HOME/ytdl-hoarder/audio")
+        AUDIO_ONLY_PATH=$(expand_path "$HOME/yt-hoarder/audio")
         print_success "  Audio files path: ${AUDIO_ONLY_PATH} (default)"
     else
-        AUDIO_ONLY_PATH=$(expand_path "$(prompt_with_default "Audio files path" "$HOME/ytdl-hoarder/audio")")
+        AUDIO_ONLY_PATH=$(expand_path "$(prompt_with_default "Audio files path" "$HOME/yt-hoarder/audio")")
     fi
 
     if [[ -n "$ARG_VIDEO_PATH" ]]; then
         VIDEO_PATH=$(expand_path "$ARG_VIDEO_PATH")
         print_success "  Video files path: ${VIDEO_PATH} (from --video-path)"
     elif [[ -n "$NON_INTERACTIVE" ]]; then
-        VIDEO_PATH=$(expand_path "$HOME/ytdl-hoarder/video")
+        VIDEO_PATH=$(expand_path "$HOME/yt-hoarder/video")
         print_success "  Video files path: ${VIDEO_PATH} (default)"
     else
-        VIDEO_PATH=$(expand_path "$(prompt_with_default "Video files path" "$HOME/ytdl-hoarder/video")")
+        VIDEO_PATH=$(expand_path "$(prompt_with_default "Video files path" "$HOME/yt-hoarder/video")")
     fi
 
     # Offer to create directories if they don't exist
@@ -643,7 +643,7 @@ configure_storage() {
 configure_transcription() {
     print_header "Transcription Settings"
 
-    echo "  ytdl-hoarder can transcribe audio using OpenAI's Whisper model."
+    echo "  yt-hoarder can transcribe audio using OpenAI's Whisper model."
     echo "  Larger models are more accurate but require more RAM."
     echo ""
     echo "    1) tiny.en   - Fastest, ~1GB RAM (recommended for most users)"
@@ -706,7 +706,7 @@ configure_transcription() {
 configure_mcp() {
     print_header "AI Agent Access (MCP)"
 
-    echo "  ytdl-hoarder can serve an MCP endpoint, so AI agents you run yourself --"
+    echo "  yt-hoarder can serve an MCP endpoint, so AI agents you run yourself --"
     echo "  Claude Code, LM Studio, Cursor and others -- can search your transcripts and"
     echo "  summarise them with links to the exact moment. Each user connects their own"
     echo "  agent with a personal access token. The app itself never calls an AI service."
@@ -739,7 +739,7 @@ configure_mcp() {
     else
         local answer
         while true; do
-            answer=$(prompt_with_default "Address you open ytdl-hoarder at (blank = auto-detect)" "")
+            answer=$(prompt_with_default "Address you open yt-hoarder at (blank = auto-detect)" "")
             answer="${answer%/}"
             if [[ -z "$answer" ]] || valid_public_url "$answer"; then
                 MCP_PUBLIC_URL="$answer"
@@ -763,7 +763,7 @@ generate_jwt_secret() {
 # `docker compose pull` later picks up the same release without re-running setup.
 resolve_image_tag() {
     IMAGE_TAG="${ARG_IMAGE_TAG:-latest}"
-    IMAGE_REF="ghcr.io/kkuhlmann/ytdl-hoarder:${IMAGE_TAG}"
+    IMAGE_REF="ghcr.io/kkuhlmann/yt-hoarder:${IMAGE_TAG}"
 }
 
 # ── Step 5c: Bootstrap Install Directory ───────────────────────────────────
@@ -852,8 +852,8 @@ VIDEO_PATH=${VIDEO_PATH}
 # The prebuilt release image, read only by docker-compose.published.yml.
 # 'latest' follows the newest release; pin a version (e.g. v0.1.0) to hold one.
 # Update with: docker compose -f docker-compose.published.yml pull && ... up -d
-YTDL_HOARDER_IMAGE=ghcr.io/kkuhlmann/ytdl-hoarder
-YTDL_HOARDER_TAG=${IMAGE_TAG}
+YT_HOARDER_IMAGE=ghcr.io/kkuhlmann/yt-hoarder
+YT_HOARDER_TAG=${IMAGE_TAG}
 
 # Where the dev-mode frontend looks for the API. Leave empty: it then follows
 # whatever address you browsed to, so one dev server answers on localhost, a LAN
@@ -879,7 +879,7 @@ EOF
 # See config.sample.yml for all available options and documentation.
 
 database:
-  url: postgresql://ytdl:ytdl@postgres:5432/ytdl_hoarder
+  url: postgresql://ytdl:ytdl@postgres:5432/yt_hoarder
 
 # How often subscriptions are checked and how many jobs each lane runs at once
 # are not set here — both live in the Settings tab, so they can be changed
@@ -1059,7 +1059,7 @@ launch_published() {
         echo ""
         echo "  Or build it from source instead -- expect 20-45 minutes:"
         echo -e "    ${BOLD}git clone ${CLONE_URL}${RESET}"
-        echo -e "    ${BOLD}cd ytdl-hoarder && bash setup.sh --launch build-prod${RESET}"
+        echo -e "    ${BOLD}cd yt-hoarder && bash setup.sh --launch build-prod${RESET}"
         LAUNCH_FAILED="1"
         return 0
     fi
