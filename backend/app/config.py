@@ -17,9 +17,10 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # The value shipped in config.sample.yml. Compared against at startup to refuse
@@ -171,6 +172,46 @@ class LoggingSettings(BaseSettings):
     level: str = Field(default='INFO', description='Log level (DEBUG, INFO, WARNING, ERROR)')
 
 
+class McpSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix='MCP__',
+        extra='ignore',
+    )
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            'Serve the MCP endpoint that lets AI agents search transcripts with a '
+            'personal access token. Off by default: while disabled the endpoint 404s '
+            'and no token can be created.'
+        ),
+    )
+    public_url: str = Field(
+        default='',
+        description=(
+            'The address you open ytdl-hoarder at (e.g. https://hoarder.example.com), '
+            'used to build the in-app links in search results. Empty derives it from '
+            'the address the agent connected to, which is wrong behind a proxy that '
+            'rewrites the Host header.'
+        ),
+    )
+
+    @field_validator('public_url')
+    @classmethod
+    def _validate_public_url(cls, value: str) -> str:
+        value = value.strip().rstrip('/')
+        if not value:
+            return ''
+        parsed = urlsplit(value)
+        if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+            msg = 'mcp.public_url must be an http:// or https:// URL'
+            raise ValueError(msg)
+        if parsed.query or parsed.fragment:
+            msg = 'mcp.public_url must not carry a query string or fragment'
+            raise ValueError(msg)
+        return value
+
+
 class Settings(BaseSettings):
     """
     Configuration priority (highest to lowest):
@@ -191,6 +232,7 @@ class Settings(BaseSettings):
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
+    mcp: McpSettings = Field(default_factory=McpSettings)
 
 
 def _create_settings_from_yaml(yaml_config: dict[str, Any]) -> Settings:
@@ -202,6 +244,7 @@ def _create_settings_from_yaml(yaml_config: dict[str, Any]) -> Settings:
     embedding = EmbeddingSettings(**(yaml_config.get('embedding') or {}))
     auth = AuthSettings(**(yaml_config.get('auth') or {}))
     logging = LoggingSettings(**(yaml_config.get('logging') or {}))
+    mcp = McpSettings(**(yaml_config.get('mcp') or {}))
 
     tasks = TasksSettings(**(yaml_config.get('tasks') or {}))
 
@@ -213,6 +256,7 @@ def _create_settings_from_yaml(yaml_config: dict[str, Any]) -> Settings:
         embedding=embedding,
         auth=auth,
         logging=logging,
+        mcp=mcp,
     )
 
 

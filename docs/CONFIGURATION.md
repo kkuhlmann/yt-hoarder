@@ -2,7 +2,7 @@
 
 [`config.sample.yml`](../config.sample.yml) is the authoritative annotated reference for every
 application setting. This document covers the settings that need more explanation than a comment
-allows: live runtime settings, the throttling knobs, and dev-mode networking.
+allows: live runtime settings, the throttling knobs, AI agent access (MCP), and dev-mode networking.
 
 ## Where settings live
 
@@ -140,6 +140,76 @@ The **storage budget** (default 4 GB, changed from the storage dialog) governs o
 itself will keep. Items downloaded by hand are pinned and never removed automatically; playlist and
 subscription downloads form the pool that is reclaimed least-recently-played-first when the budget is
 reached.
+
+## AI agents (MCP)
+
+ytdl-hoarder can serve an [MCP](https://modelcontextprotocol.io) endpoint so an AI agent you run
+yourself can research your transcript library: *"What did this channel say about X in 2025?"*,
+answered with a summary, citations, upload dates and links to the exact second. The app never calls
+an AI service; connect whichever MCP client you like, such as Claude Code, LM Studio or Cursor.
+
+**Turning it on.** Run `setup.sh --mcp`, answer yes to its prompt, or set it in `config.yml` and
+restart the backend:
+
+```yaml
+mcp:
+  enabled: true
+  public_url: ""   # optional, see below
+```
+
+While it is off, the endpoint answers 404 and the token menu is hidden.
+
+**Tokens.** Every approved user creates their own tokens from the account menu → **MCP Access
+Tokens**. A token is shown once, acts as its user, and sees exactly what that user sees in the app:
+their own media and media shared with them. It stops working when:
+
+- it reaches its optional expiry;
+- the user revokes it;
+- the user's password changes, the same rule that signs out their other sessions;
+- an admin revokes all of a user's tokens from **Settings → User Management**.
+
+Tokens authenticate the MCP endpoint only, never the rest of the API.
+
+**Connecting a client.** Any MCP client that can send a custom header works. It needs two things:
+
+- **URL:** the endpoint address, described below;
+- **Header:** `Authorization: Bearer <token>`.
+
+The token dialog shows both with your server's address and token filled in, plus ready-to-paste
+setup: a `claude mcp add` command and an `mcp.json` snippet (an `mcpServers` entry with the URL and
+header) of the kind LM Studio and Cursor read. With Claude Code, for example:
+
+```bash
+claude mcp add --scope user --transport http ytdl-hoarder https://<your-host>/api/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+Use a model that supports tool calling. The server also offers a `research` prompt for a
+summary-plus-evidence-table answer; Claude Code lists it as `/ytdl-hoarder:research`.
+
+**The endpoint address** is `/api/mcp` on a production or published install (`http://<host>:8000/api/mcp`
+by default) and `http://<host>:8000/mcp` in dev mode. Use the address another machine reaches the
+server by, not `localhost`, when the agent runs elsewhere. Tokens travel in a request header, so serve
+the app over HTTPS (set up as in [A secure context](#1-a-secure-context-https)) when agents reach it
+across an untrusted network.
+
+**The tools** are read-only:
+
+| Tool | What it does |
+|---|---|
+| `library_overview` | Channels, upload-date span and tags, so the agent can pick real channel names and dates |
+| `search_transcripts` | Timestamped passages, best first, filtered by channel, tag, rating and upload-date range. Each result reports exactly what was searched: the semantic phrase, keywords, channels, dates and embedding model |
+| `get_transcript` | Reads a video's transcript around a moment, or page by page |
+
+**`public_url` and in-app links.** Every result links both to the source (`youtube.com/…&t=754`) and
+into ytdl-hoarder's own player (`/?media=123&t=754`), which also works for audio and for videos since
+removed from YouTube. With `public_url` empty, in-app links use the address the agent connected to,
+which is right when your browser and the agent reach the server by the same name. Set it to the
+address you open the app at when they differ, or when a reverse proxy rewrites the `Host` header.
+Behind a TLS-terminating proxy, also set `FORWARDED_ALLOW_IPS` so links come out as `https`.
+
+**Limits.** 120 requests a minute per token. Repeated failed authentications from one address are
+locked out for a few minutes.
 
 ## Dev-mode networking
 

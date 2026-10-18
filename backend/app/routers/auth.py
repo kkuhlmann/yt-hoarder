@@ -23,6 +23,7 @@ from dependencies import get_admin_user_id, get_required_user_id
 from logger import logger
 from models import BACKGROUNDS_DIR, MIN_PASSWORD_LENGTH, MediaAccess, User, utc_now
 from rate_limit import login_rate_limit, recovery_rate_limit, register_rate_limit
+from repositories import access_tokens as token_repo
 from repositories import users as user_repo
 from services import admin_recovery
 
@@ -45,6 +46,9 @@ class UserResponse(BaseModel):
     must_change_password: bool = False
     geo_background_preset: str | None = None
     has_geo_background: bool = False
+    # Instance-wide rather than per-user, but carried here because every client
+    # already fetches /me on boot and uses it to decide what to show.
+    mcp_enabled: bool = False
 
 
 def _user_response(user: User) -> UserResponse:
@@ -56,6 +60,7 @@ def _user_response(user: User) -> UserResponse:
         must_change_password=user.must_change_password,
         geo_background_preset=user.geo_background_preset,
         has_geo_background=bool(user.geo_background_filename),
+        mcp_enabled=settings.mcp.enabled,
     )
 
 
@@ -355,6 +360,7 @@ class UserListResponse(BaseModel):
     storage_used_bytes: int
     password_reset_requested_at: str | None = None
     must_change_password: bool = False
+    token_count: int = 0
 
 
 class StorageLimitRequest(BaseModel):
@@ -391,6 +397,7 @@ async def list_users(_admin_id: int = Depends(get_admin_user_id)):
         result = await session.execute(stmt)
         rows = result.all()
 
+    token_counts = await token_repo.count_tokens_by_user()
     response = []
     for user, media_count in rows:
         storage_used = await user_repo.get_user_storage_usage(user.id)
@@ -410,6 +417,7 @@ async def list_users(_admin_id: int = Depends(get_admin_user_id)):
                     else None
                 ),
                 must_change_password=user.must_change_password,
+                token_count=token_counts.get(user.id, 0),
             )
         )
 

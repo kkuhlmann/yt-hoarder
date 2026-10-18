@@ -14,6 +14,7 @@ import axios from "axios"
 import { apiUrl, fetchPage, searchParam } from "@/app/lib/api"
 import { mediaApi } from "@/app/lib/mediaApi"
 import { groupFilterParams } from "@/app/lib/groupFilter"
+import { parseDeepLink, stripDeepLink, type DeepLink } from "@/app/lib/deepLink"
 import { fetchOfflineLibrary, fetchOfflineStats } from "@/app/lib/offlineLibrary"
 import { useOffline } from "@/app/context/OfflineContext"
 import { OfflineUnavailable } from "@/app/_components/OfflineUnavailable"
@@ -82,6 +83,17 @@ export default function HomePage() {
   })
   const [subscriptions, setSubscriptions] = useState([DEFAULT_SUBSCRIPTION])
   const [search, setSearch] = useState("")
+  // Read once: the URL is cleaned straight away, and a handled link must not replay.
+  const [deepLink, setDeepLink] = useState<DeepLink | null>(() =>
+    typeof window === "undefined" ? null : parseDeepLink(window.location.search)
+  )
+  const clearDeepLink = useCallback(() => setDeepLink(null), [])
+  useEffect(() => {
+    // Keeps a refresh or a copied address bar from replaying the jump.
+    const cleaned = stripDeepLink(window.location.href)
+    const current = window.location.pathname + window.location.search + window.location.hash
+    if (cleaned !== current) window.history.replaceState(window.history.state, "", cleaned)
+  }, [])
   const [semanticSearch, setSemanticSearch] = useState("")
   const [semanticWeight, setSemanticWeight] = useState(1.0)
   const [subscriptionSearch, setSubscriptionSearch] = useState("")
@@ -381,6 +393,8 @@ export default function HomePage() {
                     setSemanticSearch={setSemanticSearch}
                     semanticWeight={semanticWeight}
                     setSemanticWeight={setSemanticWeight}
+                    deepLink={deepLink}
+                    onDeepLinkHandled={clearDeepLink}
                   />
                 </motion.div>
               ) : view === "subscriptions" && offlineMode ? (

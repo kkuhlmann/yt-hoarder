@@ -1,4 +1,4 @@
-"""In-process sliding-window rate limiting for the unauthenticated auth endpoints.
+"""In-process sliding-window rate limiting for the unauthenticated auth endpoints and MCP.
 
 Keyed on client address alone, never on the submitted username. A per-username counter
 would let anyone lock a chosen account out of its own sign-in, and would reintroduce the
@@ -52,6 +52,22 @@ class SlidingWindowLimiter:
         hits.append(now)
         return None
 
+    def peek(self, key: str, now: float | None = None) -> float | None:
+        """Like retry_after, but never charges a hit.
+
+        For limiters that count only failures: check before doing the work, then charge
+        with retry_after once the attempt has actually failed.
+        """
+        now = time.monotonic() if now is None else now
+        hits = self._hits.get(key)
+        if not hits:
+            return None
+        cutoff = now - self.window_seconds
+        live = [hit for hit in hits if hit > cutoff]
+        if len(live) >= self.limit:
+            return live[0] - cutoff
+        return None
+
     def reset(self) -> None:
         self._hits.clear()
 
@@ -73,7 +89,20 @@ REGISTER_LIMITER = SlidingWindowLimiter(limit=10, window_seconds=3600)
 # the requests that mint new codes.
 RECOVERY_LIMITER = SlidingWindowLimiter(limit=10, window_seconds=3600)
 
-ALL_LIMITERS = (LOGIN_LIMITER, REGISTER_LIMITER, RECOVERY_LIMITER)
+# MCP calls are cheap to make and an agent may fan out several searches per question,
+# so the per-token budget is generous; it exists to stop a runaway loop, not normal use.
+MCP_TOKEN_LIMITER = SlidingWindowLimiter(limit=120, window_seconds=60)
+# Counts only failed MCP authentications, per client address. A 256-bit token cannot be
+# guessed, so this is about keeping junk requests off the database, not brute force.
+MCP_AUTH_FAIL_LIMITER = SlidingWindowLimiter(limit=30, window_seconds=300)
+
+ALL_LIMITERS = (
+    LOGIN_LIMITER,
+    REGISTER_LIMITER,
+    RECOVERY_LIMITER,
+    MCP_TOKEN_LIMITER,
+    MCP_AUTH_FAIL_LIMITER,
+)
 
 
 def client_key(request: Request) -> str:

@@ -1,6 +1,6 @@
 import asyncio
 import os
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, status
@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from config import DEFAULT_INSECURE_SECRET_KEY, settings
 from database import db
 from logger import logger
+from mcp_server.http import McpEndpoint
 from middleware.auth import OptionalAuthMiddleware
 from orchestrator import orch
 from orchestrator.recovery import retry_scheduler_loop, run_startup_recovery
@@ -28,6 +29,7 @@ from routers.sse import router as sse_router
 from routers.stats import router as stats_router
 from routers.subscriptions import router as subscriptions_router
 from routers.task_records import router as tasks_router
+from routers.tokens import router as tokens_router
 from routers.ytdl_router import router as ytdl_router
 from tasks import register_all_jobs
 from tasks.registry import build_cron_jobs
@@ -42,6 +44,11 @@ API_PREFIX = '/api' if SERVE_FRONTEND else ''
 # the frontend is served, which is exactly when the prefix is '/api', and deriving
 # it would make the guard match every path in the dev config, where it is ''.
 SPA_RESERVED_PREFIX = 'api'
+# Nothing is served from here, and an MCP client that gets a 401 probes it for OAuth
+# metadata (RFC 9728): answering with index.html and a 200 reads as broken metadata.
+WELL_KNOWN_PREFIX = '.well-known'
+
+mcp_endpoint = McpEndpoint(dev_frontend=not SERVE_FRONTEND)
 
 
 def docs_kwargs(serve_frontend: bool) -> dict[str, str | None]:
@@ -120,9 +127,22 @@ async def lifespan(app: FastAPI):
     else:
         logger.info('Development mode: API-only, no frontend serving')
 
-    yield
+    async with AsyncExitStack() as stack:
+        if settings.mcp.enabled:
+            # Imported here so a disabled install never loads the SDK.
+            from mcp_server.server import build_mcp_server
 
-    logger.info('Shutting down application.')
+            server = build_mcp_server()
+            # A sub-app's lifespan never runs, so its session manager starts here.
+            await stack.enter_async_context(server.session_manager.run())
+            mcp_endpoint.server = server
+            logger.info(f'MCP server enabled at {API_PREFIX}/mcp')
+
+        yield
+
+        logger.info('Shutting down application.')
+        mcp_endpoint.server = None
+
     await orch.stop()
     await db.close()
 
@@ -145,6 +165,7 @@ async def _invalid_state_error_handler(_request, exc):
 app.add_middleware(OptionalAuthMiddleware)
 
 app.include_router(auth_router, tags=['auth'], prefix=f'{API_PREFIX}/auth')
+app.include_router(tokens_router, tags=['auth'], prefix=f'{API_PREFIX}/auth/tokens')
 app.include_router(
     subscriptions_router, tags=['subscriptions'], prefix=f'{API_PREFIX}/subscriptions'
 )
@@ -159,6 +180,10 @@ app.include_router(playlists_router, tags=['playlists'], prefix=f'{API_PREFIX}/p
 app.include_router(sse_router, tags=['sse'], prefix=f'{API_PREFIX}/sse')
 app.include_router(settings_router, tags=['settings'], prefix=f'{API_PREFIX}/settings')
 app.include_router(stats_router, tags=['stats'], prefix=f'{API_PREFIX}/stats')
+# Always registered, answering 404 while mcp.enabled is off, so it is indistinguishable
+# from an unknown path then. Both spellings, ahead of the SPA catch-all below.
+app.add_route(f'{API_PREFIX}/mcp', mcp_endpoint, include_in_schema=False)
+app.add_route(f'{API_PREFIX}/mcp/', mcp_endpoint, include_in_schema=False)
 
 
 @app.get('/health')
@@ -169,19 +194,20 @@ def healthcheck():
 def resolve_spa_file(path: str) -> Path | None:
     """Map a request path to a file to serve, defaulting to the SPA entrypoint.
 
-    Returns None for anything under the API prefix, which the caller turns into a
-    404. Without that an unmatched `/api/*` falls through to index.html and an
-    unknown endpoint answers 200 with a page of HTML, which a client cannot tell
-    from a real response — a service worker deciding whether a reply is cacheable
-    least of all.
+    Returns None for anything under the API prefix or `.well-known/`, which the
+    caller turns into a 404. Without that an unmatched `/api/*` falls through to
+    index.html and an unknown endpoint answers 200 with a page of HTML, which a
+    client cannot tell from a real response — a service worker deciding whether a
+    reply is cacheable least of all.
 
     Containment must be re-checked *after* resolving: uvicorn percent-decodes the
     request path before routing and Starlette's `:path` convertor matches `..`, so
     the raw join escapes STATIC_DIR (`/%2e%2e/%2e%2e/etc/app/config.yml`). Resolving
     also collapses symlinks that point outside the static root.
     """
-    if path == SPA_RESERVED_PREFIX or path.startswith(f'{SPA_RESERVED_PREFIX}/'):
-        return None
+    for prefix in (SPA_RESERVED_PREFIX, WELL_KNOWN_PREFIX):
+        if path == prefix or path.startswith(f'{prefix}/'):
+            return None
 
     static_root = STATIC_DIR.resolve()
     index = static_root / 'index.html'

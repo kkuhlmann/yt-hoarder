@@ -20,6 +20,7 @@ one covering the area they're about to touch.
 | Dockerfiles, compose files, workflows, `Taskfile.yml`, `setup.sh`, `config.py` | `.claude/rules/deployment.md` | Taskfile container traps, multi-arch images and GHCR, config plumbing |
 | `backend/tests/` | `.claude/rules/testing.md` | The conftest fixture chain, and why each piece of it is load-bearing |
 | `app/ytdlp/` | `.claude/rules/ytdlp.md` | Player clients, the three throttling knobs, POT provider keys, cookie handling, impersonation |
+| `app/mcp_server/`, `repositories/access_tokens.py`, `routers/tokens.py` | `.claude/rules/mcp.md` | Why the MCP transport must be stateless, Route not Mount, its own bearer auth, the token validity rules, the logging restore, in-app link base URLs |
 
 **New guidance goes in whichever file matches its scope** — cross-cutting here, area-specific in the
 matching rule file. Every rule file must keep its `paths:` frontmatter: without it the file loads
@@ -62,10 +63,12 @@ guess: `/media-details` also owns **tags and ratings** (they have no router of t
 keyword `search` supports `&&` / `||` operators (parsed in `_build_search_condition`,
 `repositories/media_details.py` — `&&` binds tighter than `||`, and single `&` / `|` are literal).
 `/health` is inline in `main.py`, as is the SPA catch-all, which **404s any unmatched path under
-`/api/`** instead of falling through to `index.html`. Without that guard an unknown endpoint answers
-200 with a page of HTML, which no client can tell from a real response — the service worker deciding
-whether a reply is cacheable least of all. `resolve_spa_file` returns `None` for those paths;
-everything else still falls back to the shell so client-side routes keep booting.
+`/api/` or `.well-known/`** instead of falling through to `index.html`. Without that guard an unknown
+endpoint answers 200 with a page of HTML, which no client can tell from a real response — the service
+worker deciding whether a reply is cacheable least of all. `resolve_spa_file` returns `None` for those paths;
+everything else still falls back to the shell so client-side routes keep booting. The MCP endpoint
+(`{API_PREFIX}/mcp`, `mcp_server/http.py`) is registered there too, as two exact routes ahead of the
+catch-all; personal access tokens for it are managed under `/auth/tokens`.
 
 ### Frontend (`frontend/app/`)
 
@@ -92,6 +95,12 @@ filter is `effective_user_id = None if (admin_view and is_admin) else user_id`, 
 filter at all. A shared user's "delete" removes only their own access row; the entity persists for the
 owner. Tags and ratings are **per-user, not per-entity** — `Tag`, `MediaTag` and `MediaRating` all
 carry `user_id`, so two users sharing a media row keep independent tags and ratings on it.
+
+**Personal access tokens authenticate the MCP endpoint and nothing else**, and the cookie never
+authenticates MCP: the REST middleware reads only the cookie, the MCP endpoint only the `Bearer`
+header. A token acts as its user with the same Owner → Shared scope as the UI (never admin view), and
+dies with a password change by the same `password_changed_at` rule as cookie sessions. Details in
+`.claude/rules/mcp.md`.
 
 **Storage limits:** `User.storage_limit_bytes` (nullable, None = unlimited), set via
 `PUT /auth/users/{user_id}/storage-limit`, measured from actual files owned by the user.

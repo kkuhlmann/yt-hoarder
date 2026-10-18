@@ -71,6 +71,13 @@ Options:
   --cookie-secure             Send the auth cookie only over HTTPS. Use when you terminate
                               TLS in front of the app. Note this stops sign-in working over
                               plain http:// entirely, LAN included. (default: off)
+  --mcp                       Enable the MCP server, so AI agents you run yourself (Claude
+                              Code, LM Studio, Cursor...) can search your transcripts with a
+                              personal access token (default: off)
+  --no-mcp                    Leave the MCP server off
+  --public-url <url>          The address you open the app at (e.g. https://hoarder.example.com),
+                              used for the in-app links in MCP search results. Empty, the
+                              default, uses whatever address each agent connects with.
   --overwrite                 Overwrite existing .env/config.yml (originals are backed up)
   --no-overwrite                Cancel setup if .env/config.yml already exist
   --launch <mode>             What to start after configuring (default: published)
@@ -94,6 +101,7 @@ Examples:
   ./setup.sh --launch published --image-tag v0.1.0
   ./setup.sh -y --install-dir ~/media/ytdl-hoarder
   ./setup.sh --audio-path /mnt/audio --video-path /mnt/video --whisper-model small.en
+  ./setup.sh -y --mcp --public-url https://hoarder.example.com
 EOF
 }
 
@@ -132,6 +140,14 @@ prompt_yes_no() {
             *)     print_warn "  Please enter y or n." ;;
         esac
     done
+}
+
+# An http(s) address, optionally with a path. Whitespace, quotes, backslashes, `?` and
+# `#` are refused: the value lands inside double quotes in config.yml, and the backend
+# rejects a query string or fragment anyway.
+valid_public_url() {
+    local re='^https?://[^[:space:]"\\?#]+$'
+    [[ "$1" =~ $re ]]
 }
 
 # Expand ~ to $HOME in a path
@@ -199,6 +215,10 @@ parse_args() {
     ARG_WHISPER_MODEL=""
     ARG_WHISPER_THREADS=""
     ARG_COOKIE_SECURE=""
+    ARG_MCP=""
+    ARG_PUBLIC_URL=""
+    # Separate from the value, so an explicit `--public-url ''` is honoured.
+    ARG_PUBLIC_URL_SET=""
     ARG_LAUNCH=""
     ARG_IMAGE_TAG=""
     ARG_INSTALL_DIR=""
@@ -258,6 +278,24 @@ parse_args() {
             --cookie-secure)
                 ARG_COOKIE_SECURE="true"
                 shift
+                ;;
+            --mcp)
+                ARG_MCP="y"
+                shift
+                ;;
+            --no-mcp)
+                ARG_MCP="n"
+                shift
+                ;;
+            --public-url)
+                [[ $# -ge 2 ]] || { print_error "  --public-url requires a value"; exit 1; }
+                if [[ -n "$2" ]] && ! valid_public_url "${2%/}"; then
+                    print_error "  --public-url must be an http:// or https:// address with no query string"
+                    exit 1
+                fi
+                ARG_PUBLIC_URL="${2%/}"
+                ARG_PUBLIC_URL_SET="1"
+                shift 2
                 ;;
             --launch)
                 [[ -n "${2:-}" ]] || { print_error "  --launch requires a value"; exit 1; }
@@ -665,6 +703,54 @@ configure_transcription() {
     fi
 }
 
+configure_mcp() {
+    print_header "AI Agent Access (MCP)"
+
+    echo "  ytdl-hoarder can serve an MCP endpoint, so AI agents you run yourself --"
+    echo "  Claude Code, LM Studio, Cursor and others -- can search your transcripts and"
+    echo "  summarise them with links to the exact moment. Each user connects their own"
+    echo "  agent with a personal access token. The app itself never calls an AI service."
+    echo ""
+
+    MCP_ENABLED="false"
+    MCP_PUBLIC_URL=""
+    if [[ "$ARG_MCP" == "y" ]]; then
+        MCP_ENABLED="true"
+        print_success "  MCP server: enabled (from --mcp)"
+    elif [[ "$ARG_MCP" == "n" ]]; then
+        print_success "  MCP server: off (from --no-mcp)"
+    elif [[ -n "$NON_INTERACTIVE" ]]; then
+        print_success "  MCP server: off (default)"
+    elif prompt_yes_no "Enable the MCP server so AI agents can search your transcripts?" "n"; then
+        MCP_ENABLED="true"
+    fi
+
+    [[ "$MCP_ENABLED" == "true" ]] || return 0
+
+    echo ""
+    echo "  Search results link back into the app. Leave this blank to use whatever"
+    echo "  address each agent connects with; set it if you reach the app through a"
+    echo "  reverse proxy or under a different name than the agents use."
+    if [[ -n "$ARG_PUBLIC_URL_SET" ]]; then
+        MCP_PUBLIC_URL="$ARG_PUBLIC_URL"
+        print_success "  Public URL: ${MCP_PUBLIC_URL:-auto-detect} (from --public-url)"
+    elif [[ -n "$NON_INTERACTIVE" ]]; then
+        print_success "  Public URL: auto-detect (default)"
+    else
+        local answer
+        while true; do
+            answer=$(prompt_with_default "Address you open ytdl-hoarder at (blank = auto-detect)" "")
+            answer="${answer%/}"
+            if [[ -z "$answer" ]] || valid_public_url "$answer"; then
+                MCP_PUBLIC_URL="$answer"
+                break
+            fi
+            print_warn "  Enter an http:// or https:// address, e.g. https://hoarder.example.com"
+        done
+        print_success "  Public URL: ${MCP_PUBLIC_URL:-auto-detect}"
+    fi
+}
+
 # ── Step 5: Generate JWT Secret ────────────────────────────────────────────
 
 generate_jwt_secret() {
@@ -818,6 +904,13 @@ auth:
 
 logging:
   level: INFO
+
+# AI agents (MCP). Each user creates a personal access token from the account menu.
+# public_url builds the in-app links in search results; empty uses the address the
+# agent connected with.
+mcp:
+  enabled: ${MCP_ENABLED}
+  public_url: "${MCP_PUBLIC_URL}"
 EOF
 
     # config.yml carries the JWT signing key; at the default umask it would be
@@ -1101,6 +1194,7 @@ print_completion() {
     echo ""
 
     print_offline_mode_hint
+    print_mcp_hint
 }
 
 # Offline downloads on a phone need an HTTPS origin, and nothing this script writes
@@ -1126,6 +1220,29 @@ print_offline_mode_hint() {
     echo ""
 }
 
+print_mcp_hint() {
+    [[ "${MCP_ENABLED:-false}" == "true" ]] || return 0
+
+    # Dev serves the API (and so /mcp, unprefixed) on :8000 while the UI is on :3000,
+    # so a public_url -- the UI's address -- is no use for the endpoint there.
+    local endpoint="${MCP_PUBLIC_URL:-http://localhost:8000}/api/mcp"
+    if [[ "$LAUNCHED_MODE" == "build-dev" ]]; then
+        endpoint="http://localhost:8000/mcp"
+    fi
+
+    echo "  AI agents (MCP) are enabled. To connect one:"
+    echo "    1. Sign in, open the account menu, choose MCP Access Tokens, create a token."
+    echo "    2. Point your MCP client at the endpoint, sending the token as a header:"
+    echo -e "         Endpoint:  ${BOLD}${endpoint}${RESET}"
+    echo -e "         Header:    ${BOLD}Authorization: Bearer <token>${RESET}"
+    echo "       The token dialog also shows this as ready-to-paste client setup."
+    if [[ -z "$MCP_PUBLIC_URL" || "$LAUNCHED_MODE" == "build-dev" ]]; then
+        echo "    From another machine, use this host's address instead of localhost."
+    fi
+    echo -e "  ${DIM}${DOCS_BASE}/CONFIGURATION.md${RESET}"
+    echo ""
+}
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 main() {
@@ -1144,6 +1261,7 @@ main() {
     check_existing_files
     configure_storage
     configure_transcription
+    configure_mcp
     generate_jwt_secret
     write_config_files
     prompt_launch

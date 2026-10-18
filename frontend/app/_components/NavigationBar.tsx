@@ -29,6 +29,7 @@ import {
 import { MobileNavMenu } from "@/app/_components/MobileNavMenu"
 import { ThemePicker } from "@/app/_components/ThemePicker"
 import { ChangePasswordDialog } from "@/app/_components/auth/ChangePasswordDialog"
+import { AccessTokensDialog } from "@/app/_components/auth/AccessTokensDialog"
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -84,6 +85,7 @@ export function NavigationBar() {
   const [storageUsed, setStorageUsed] = useState<number | null>(null)
   const [storageLimit, setStorageLimit] = useState<number | null>(null)
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
+  const [accessTokensOpen, setAccessTokensOpen] = useState(false)
   // Held here, not inside the dialog: the mobile entry point is a menu item, and
   // the menu unmounts its own children on select.
   const [storageOpen, setStorageOpen] = useState(false)
@@ -291,6 +293,11 @@ export function NavigationBar() {
                       <DropdownMenuItem onClick={() => setChangePasswordOpen(true)}>
                         Change Password
                       </DropdownMenuItem>
+                      {user.mcp_enabled && (
+                        <DropdownMenuItem onClick={() => setAccessTokensOpen(true)}>
+                          MCP Access Tokens
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem onClick={logout}>
                         Sign out
                       </DropdownMenuItem>
@@ -305,6 +312,9 @@ export function NavigationBar() {
                     setAdminMode={setAdminMode}
                     onOpenStorage={() => setStorageOpen(true)}
                     onOpenChangePassword={() => setChangePasswordOpen(true)}
+                    onOpenAccessTokens={
+                      user.mcp_enabled ? () => setAccessTokensOpen(true) : undefined
+                    }
                     onSignOut={logout}
                   />
                 </span>
@@ -315,6 +325,9 @@ export function NavigationBar() {
       </div>
 
       <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
+      {user?.mcp_enabled && (
+        <AccessTokensDialog open={accessTokensOpen} onOpenChange={setAccessTokensOpen} />
+      )}
       <OfflineStorageDialog open={storageOpen} onOpenChange={setStorageOpen} />
     </nav>
   )

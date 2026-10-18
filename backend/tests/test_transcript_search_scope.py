@@ -8,23 +8,17 @@ too few rows returns them successfully.
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
-from sqlalchemy import text
 
 from database import db
 from models import (
-    MediaAccess,
     MediaDetails,
     MediaType,
-    SourceType,
     TaskStatus,
     TranscriptBlock,
-    User,
 )
 from services import transcript as transcript_service
-
-EMBEDDING_DIM = 384
+from tests.transcript_seed import StubEmbedder, seed_media, seed_user
 
 
 @pytest.fixture(autouse=True)
@@ -34,100 +28,15 @@ def _clear_search_cache():
     transcript_service.semantic_cache.clear()
 
 
-class _StubEmbedder:
-    """Stands in for OnnxEmbedder so no ONNX session is loaded for a SQL test."""
-
-    def encode(self, sentences, normalize_embeddings=True):
-        return np.full((len(sentences), EMBEDDING_DIM), 0.05, dtype=np.float32)
-
-
-def _vector(value: float) -> str:
-    return '[' + ','.join([str(value)] * EMBEDDING_DIM) + ']'
-
-
-def _seed_user(session, username: str) -> int:
-    user = User(username=username, password_hash='x', is_approved=True)
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-    return user.id
-
-
-def _seed_media(
-    session,
-    *,
-    owner_id: int,
-    url: str,
-    channel: str,
-    title: str,
-    released: datetime,
-    blocks: list[str],
-    status: str = TaskStatus.COMPLETE.value,
-    grant_access_to: int | None = None,
-    embedding_value: float = 0.05,
-) -> int:
-    media = MediaDetails(
-        url=url,
-        media_type=MediaType.VIDEO,
-        channel=channel,
-        title=title,
-        status=status,
-        release_timestamp=released,
-        downloaded_at=released,
-        owner_id=owner_id,
-    )
-    session.add(media)
-    session.commit()
-    session.refresh(media)
-
-    for index, body in enumerate(blocks):
-        block = TranscriptBlock(
-            start_time=float(index * 10),
-            end_time=float(index * 10 + 10),
-            text=body,
-            media_details_id=media.id,
-        )
-        session.add(block)
-    session.commit()
-
-    block_ids = [
-        row[0]
-        for row in session.execute(
-            text('SELECT id FROM transcript_blocks WHERE media_details_id = :m ORDER BY id'),
-            {'m': media.id},
-        )
-    ]
-    for block_id in block_ids:
-        session.execute(
-            text(
-                'INSERT INTO transcript_embeddings (transcript_block_id, embedding) '
-                'VALUES (:b, CAST(:e AS vector))'
-            ),
-            {'b': block_id, 'e': _vector(embedding_value)},
-        )
-
-    if grant_access_to is not None:
-        session.add(
-            MediaAccess(
-                user_id=grant_access_to,
-                media_details_id=media.id,
-                source_type=SourceType.DIRECT,
-                source_id=0,
-            )
-        )
-    session.commit()
-    return media.id
-
-
 @pytest.fixture
 def library(clean_database, pgvector_schema):
     """Two channels in two different years, plus an unrelated second user."""
     session = db.get_sync_session()
     try:
-        owner_id = _seed_user(session, 'owner')
-        stranger_id = _seed_user(session, 'stranger')
+        owner_id = seed_user(session, 'owner')
+        stranger_id = seed_user(session, 'stranger')
 
-        nasa_id = _seed_media(
+        nasa_id = seed_media(
             session,
             owner_id=owner_id,
             url='https://example.com/nasa',
@@ -137,7 +46,7 @@ def library(clean_database, pgvector_schema):
             blocks=['the spacecraft lander touches down', 'spacecraft orbital insertion burn'],
             grant_access_to=owner_id,
         )
-        esa_id = _seed_media(
+        esa_id = seed_media(
             session,
             owner_id=owner_id,
             url='https://example.com/esa',
@@ -156,7 +65,7 @@ def library(clean_database, pgvector_schema):
 
 async def _search(**kwargs):
     return await transcript_service.get_hybrid_search_results(
-        _StubEmbedder(), 'spacecraft', **kwargs
+        StubEmbedder(), 'spacecraft', **kwargs
     )
 
 
@@ -265,9 +174,9 @@ async def test_owner_can_search_kept_transcripts_of_their_deleted_media(
     """
     session = db.get_sync_session()
     try:
-        owner_id = _seed_user(session, 'owner')
-        stranger_id = _seed_user(session, 'stranger')
-        deleted_id = _seed_media(
+        owner_id = seed_user(session, 'owner')
+        stranger_id = seed_user(session, 'stranger')
+        deleted_id = seed_media(
             session,
             owner_id=owner_id,
             url='https://example.com/gone',
@@ -303,11 +212,11 @@ async def test_a_narrow_scope_still_returns_every_matching_block(
     """
     session = db.get_sync_session()
     try:
-        owner_id = _seed_user(session, 'owner')
+        owner_id = seed_user(session, 'owner')
         # The haystack sits nearer the query vector than the needle, so a post-filtered
         # scan would fill its candidate list before ever reaching the needle.
         for index in range(60):
-            _seed_media(
+            seed_media(
                 session,
                 owner_id=owner_id,
                 url=f'https://example.com/noise-{index}',
@@ -318,7 +227,7 @@ async def test_a_narrow_scope_still_returns_every_matching_block(
                 grant_access_to=owner_id,
                 embedding_value=0.05,
             )
-        needle_id = _seed_media(
+        needle_id = seed_media(
             session,
             owner_id=owner_id,
             url='https://example.com/needle',
@@ -357,3 +266,144 @@ async def test_scope_is_part_of_the_cache_key(library):
 
     assert _media_ids(unscoped) == {library.nasa_id, library.esa_id}
     assert _media_ids(scoped) == {library.nasa_id}
+
+
+@pytest.mark.parametrize('weight', WEIGHTS)
+async def test_channels_list_keeps_only_the_named_channels(library, weight):
+    hits = await _search(
+        semantic_weight=weight,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        channels=['ESA'],
+    )
+
+    assert _media_ids(hits) == {library.esa_id}
+
+
+@pytest.mark.parametrize('weight', WEIGHTS)
+async def test_an_empty_channels_list_matches_nothing(library, weight):
+    hits = await _search(
+        semantic_weight=weight,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        channels=[],
+    )
+
+    assert hits == []
+
+
+@pytest.mark.parametrize('weight', WEIGHTS)
+async def test_release_range_is_inclusive_of_from_and_exclusive_of_to(library, weight):
+    hits = await _search(
+        semantic_weight=weight,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        released_from=datetime(2025, 7, 9),
+        released_to=datetime(2025, 7, 10),
+    )
+    before = await _search(
+        semantic_weight=weight,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        released_to=datetime(2025, 7, 9),
+    )
+
+    assert _media_ids(hits) == {library.esa_id}
+    assert _media_ids(before) == {library.nasa_id}
+
+
+async def test_a_release_range_excludes_undated_media(library):
+    session = db.get_sync_session()
+    try:
+        undated = MediaDetails(
+            url='https://example.com/undated',
+            media_type=MediaType.VIDEO,
+            channel='NASA',
+            title='Undated',
+            status=TaskStatus.COMPLETE.value,
+            owner_id=library.owner_id,
+        )
+        session.add(undated)
+        session.commit()
+        session.add(
+            TranscriptBlock(
+                start_time=0.0, end_time=10.0, text='spacecraft', media_details_id=undated.id
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    hits = await _search(
+        semantic_weight=0.0,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        released_from=datetime(2000, 1, 1),
+    )
+
+    assert undated.id not in _media_ids(hits)
+
+
+@pytest.mark.parametrize('weight', WEIGHTS)
+async def test_channels_cannot_widen_a_pinned_channel(library, weight):
+    hits = await _search(
+        semantic_weight=weight,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        channel='NASA',
+        channels=['ESA'],
+    )
+
+    assert hits == []
+
+
+@pytest.mark.parametrize('weight', [0.0, 0.5])
+async def test_fts_text_drives_the_keyword_side_independently_of_the_query(library, weight):
+    # 'lander' appears only in the NASA transcript; the embedded query matches both.
+    keyword_only = await _search(
+        semantic_weight=weight,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        fts_text='lander',
+    )
+
+    assert {hit['media_details']['id'] for hit in keyword_only if hit['fts_rank']} == {
+        library.nasa_id
+    }
+
+
+async def test_new_filters_are_part_of_the_cache_key(library):
+    esa = await _search(
+        semantic_weight=1.0,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        channels=['ESA'],
+    )
+    nasa = await _search(
+        semantic_weight=1.0,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        channels=['NASA'],
+    )
+    nasa_2025 = await _search(
+        semantic_weight=1.0,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        channels=['NASA'],
+        released_from=datetime(2025, 1, 1),
+    )
+
+    assert _media_ids(esa) == {library.esa_id}
+    assert _media_ids(nasa) == {library.nasa_id}
+    assert nasa_2025 == []
+
+
+async def test_hits_carry_the_upload_date(library):
+    hits = await _search(
+        semantic_weight=1.0,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        channels=['NASA'],
+    )
+
+    assert {hit['media_details']['release_timestamp'] for hit in hits} == {datetime(2024, 3, 4)}

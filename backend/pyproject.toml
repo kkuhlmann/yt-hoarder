@@ -25,6 +25,7 @@ dependencies = [
     "uvicorn>=0.52.3",
     "yt-dlp[default,curl-cffi]>=2026.8.19",
     "python-multipart>=0.0.32",
+    "mcp>=2.3,<3",
 ]
 [tool.ruff]
 line-length = 100

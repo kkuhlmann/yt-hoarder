@@ -6,6 +6,7 @@ the user happens to land on. These tests pin both halves together.
 """
 
 import inspect
+from datetime import datetime
 from types import SimpleNamespace
 
 from services.transcript import (
@@ -24,6 +25,7 @@ EXPECTED_MEDIA_DETAILS_KEYS = {
     'status',
     'duration',
     'thumbnail_path',
+    'release_timestamp',
 }
 
 
@@ -43,6 +45,7 @@ def _fake_row(**overrides) -> SimpleNamespace:
         'status': 'COMPLETE',
         'duration': 612.34,
         'thumbnail_path': '/mnt/video/abc.jpg',
+        'release_timestamp': datetime(2025, 3, 14),
     }
     row.update(overrides)
     return SimpleNamespace(**row)
@@ -56,6 +59,8 @@ def test_hit_carries_every_media_field_the_player_surfaces_need():
     # duration; without it the whole editor degenerates to a zero-length range.
     assert result['media_details']['duration'] == 612.34
     assert result['media_details']['thumbnail_path'] == '/mnt/video/abc.jpg'
+    # MCP results cite each passage with its upload date.
+    assert result['media_details']['release_timestamp'] == datetime(2025, 3, 14)
 
 
 def test_null_duration_passes_through_rather_than_becoming_a_number():
@@ -68,7 +73,7 @@ def test_null_duration_passes_through_rather_than_becoming_a_number():
 def test_every_query_builder_projects_what_the_assembler_reads():
     for builder in (_semantic_search, _keyword_search, _hybrid_rrf_search):
         source = inspect.getsource(builder)
-        for column in ('md.duration', 'md.thumbnail_path'):
+        for column in ('md.duration', 'md.thumbnail_path', 'md.release_timestamp'):
             assert column in source, f'{builder.__name__} does not project {column}'
 
 
@@ -80,5 +85,5 @@ def test_semantic_search_projects_the_media_fields_on_both_paths():
     """
     source = inspect.getsource(_semantic_search)
 
-    for column in ('md.duration', 'md.thumbnail_path'):
+    for column in ('md.duration', 'md.thumbnail_path', 'md.release_timestamp'):
         assert source.count(column) == 2, f'_semantic_search projects {column} on only one path'

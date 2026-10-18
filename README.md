@@ -42,6 +42,7 @@ accounts and no cloud dependency.
 | **Playlists** | Build custom playlists with drag-and-drop ordering and play through them with next-up, shuffle, and autoplay controls. |
 | **Statistics** | Storage breakdown, download trends over time, transcription coverage, and filterable engagement metrics. |
 | **Multi-user and sharing** | Accounts with admin approval, per-user storage limits, and sharing of media, subscriptions, playlists, and clips. Media already downloaded by one user is granted to the next rather than downloaded twice. |
+| **AI research (MCP)** | Optional MCP endpoint that lets an AI agent you run yourself — Claude Code, LM Studio, Cursor or any other MCP client — search your transcripts and answer with citations, upload dates and links to the exact moment, both on YouTube and in the app's own player. Each user connects with a personal access token that sees only their library. Off by default; see [Configuration](#configuration). |
 | **Boolean search** | The Downloads search box matches channel and title and supports `&&` (AND) and `\|\|` (OR); `&&` binds tighter. Single `&` and `\|` are matched literally. The operators narrow transcript search results too. |
 | **Offline mode** | Save audio and video to a phone and play it with no connection — the app itself keeps working offline, installed to the home screen. Downloads can be pinned per item or kept in sync with a playlist or subscription, inside a storage budget; playlists with downloaded items play offline too. Playback-only while switched on. Needs HTTPS and a production install; see [On mobile](#on-mobile). |
 | **70+ themes** | Built-in themes from retro terminal to modern light and dark palettes, switchable instantly. |
@@ -242,6 +243,9 @@ it previously passed over. How often subscriptions are checked is set in **Setti
   (`transcription.whisper_model`)
 - **Release version** — `.env`: `YTDL_HOARDER_TAG`, `latest` by default; pin it to hold a version
   through updates
+- **AI agent access (MCP)** — off by default (`mcp.enabled`); `setup.sh --mcp` turns it on. Each user
+  then creates a token from the account menu → **MCP Access Tokens**, which shows the exact command to
+  connect Claude Code or the `mcp.json` snippet for LM Studio and Cursor
 
 `config.yml` is the single source of application settings and is documented in full in
 [`config.sample.yml`](config.sample.yml). `.env` is Docker Compose's variable file and is never read
@@ -250,7 +254,7 @@ task lane concurrency, and several other settings are editable live from the **S
 take effect on the next task without a restart.
 
 See [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) for the throttling knobs, live settings
-semantics, release pinning, and dev-mode networking.
+semantics, release pinning, connecting AI agents over MCP, and dev-mode networking.
 
 ## Troubleshooting
 

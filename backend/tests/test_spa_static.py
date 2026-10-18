@@ -92,6 +92,19 @@ def test_api_paths_are_not_served_by_the_spa(static_root, path):
     assert main.resolve_spa_file(path) is None
 
 
+@pytest.mark.parametrize(
+    'path',
+    [
+        '.well-known',
+        '.well-known/oauth-protected-resource',
+        '.well-known/oauth-protected-resource/api/mcp',
+    ],
+)
+def test_well_known_paths_are_not_served_by_the_spa(static_root, path):
+    """An MCP client probes these for OAuth metadata after a 401; HTML there reads as broken."""
+    assert main.resolve_spa_file(path) is None
+
+
 @pytest.mark.parametrize('path', ['apidocs', 'api.txt', 'apis/media', 'my-api/thing'])
 def test_paths_merely_starting_with_api_still_reach_the_spa(static_root, path):
     """The guard matches the /api segment, not the prefix of any longer word."""
