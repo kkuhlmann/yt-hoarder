@@ -4,7 +4,7 @@ import { useState, useCallback } from "react"
 import { useFetchEffect } from "@/app/_hooks/useFetchEffect"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { ArrowPathIcon, CheckIcon, TrashIcon, PencilIcon, KeyIcon, XMarkIcon } from "@heroicons/react/24/outline"
+import { ArrowPathIcon, CheckIcon, TrashIcon, PencilIcon, KeyIcon, XMarkIcon, NoSymbolIcon } from "@heroicons/react/24/outline"
 import axios from "axios"
 import toast from "react-hot-toast"
 import { apiUrl, errorMessage } from "@/app/lib/api"
@@ -24,6 +24,7 @@ type ManagedUser = {
   storage_used_bytes: number
   password_reset_requested_at: string | null
   must_change_password: boolean
+  token_count: number
 }
 
 const STORAGE_PRESETS = [
@@ -79,6 +80,19 @@ export function UserManagement() {
       fetchUsers()
     } catch (error) {
       toast.error(errorMessage(error, "Failed to delete user"))
+    }
+  }
+
+  const revokeTokens = async (userId: number, username: string) => {
+    if (!window.confirm(`Revoke every MCP access token "${username}" holds? Their agents stop working immediately.`)) {
+      return
+    }
+    try {
+      const response = await axios.delete(apiUrl(`/auth/tokens/users/${userId}`))
+      toast.success(`Revoked ${response.data.revoked} token(s) for "${username}"`)
+      fetchUsers()
+    } catch (error) {
+      toast.error(errorMessage(error, "Failed to revoke tokens"))
     }
   }
 
@@ -274,6 +288,15 @@ export function UserManagement() {
                   >
                     <PencilIcon className="h-3.5 w-3.5" />
                   </button>
+                  {user.token_count > 0 && (
+                    <button
+                      onClick={() => revokeTokens(user.id, user.username)}
+                      className="p-1 text-text-muted hover:text-status-error transition-colors rounded"
+                      title={`Revoke ${user.token_count} MCP access token(s)`}
+                    >
+                      <NoSymbolIcon className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                   {user.id !== currentUser?.id && (
                     <button
                       onClick={() => setResetTarget(user)}

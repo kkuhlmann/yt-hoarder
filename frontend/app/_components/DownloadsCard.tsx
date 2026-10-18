@@ -43,6 +43,8 @@ import toast from "react-hot-toast"
 import { apiUrl } from "@/app/lib/api"
 import { mediaApi } from "@/app/lib/mediaApi"
 import { offlineTags } from "@/app/lib/offlineLibrary"
+import type { DeepLink } from "@/app/lib/deepLink"
+import { useDeepLinkPlayback, type DeepLinkMedia } from "@/app/_hooks/useDeepLinkPlayback"
 import { saveRating } from "@/app/_hooks/useMediaActions"
 
 // Stable identity so an empty selection doesn't re-render the table every pass.
@@ -107,6 +109,9 @@ type DownloadsCardProps = {
   setSemanticSearch: Dispatch<SetStateAction<string>>
   semanticWeight: number
   setSemanticWeight: Dispatch<SetStateAction<number>>
+  /** A `/?media=&t=` link the page was opened with, played once on arrival. */
+  deepLink: DeepLink | null
+  onDeepLinkHandled: () => void
 }
 
 export function DownloadsCard({
@@ -123,6 +128,8 @@ export function DownloadsCard({
   setSemanticSearch,
   semanticWeight,
   setSemanticWeight,
+  deepLink,
+  onDeepLinkHandled,
 }: DownloadsCardProps) {
   const { offlineMode } = useOffline()
   // Offline mode is playback-only. The transcript search is a server query, so a
@@ -700,6 +707,42 @@ export function DownloadsCard({
       playingId === item.media_details_id ? "bg-matrix/10" : undefined,
     [playingId]
   )
+
+  // Same shape as a transcript-hit jump: the linked second stands even near the end.
+  const playLinked = (media: DeepLinkMedia, seconds: number) => {
+    setRowSelect({
+      media_details_id: media.id,
+      title: media.title,
+      channel: media.channel,
+      url: media.url,
+      duration: media.duration || 0,
+      playback_position: seconds,
+      thumbnail_path: media.thumbnail_path,
+      exact_start: true,
+    })
+  }
+  useDeepLinkPlayback(deepLink, offlineMode, {
+    onVideo: (media, seconds) => {
+      playLinked(media, seconds)
+      closeAudioPlayer()
+      setVideoSource("standalone")
+    },
+    onAudio: (media, seconds) => {
+      playLinked(media, seconds)
+      setVideoSource(null)
+      openAudioPlayer({
+        media_details_id: media.id,
+        title: media.title,
+        channel: media.channel,
+        url: media.url,
+        start_time: seconds,
+        exact_start: true,
+        duration: media.duration ?? undefined,
+        thumbnail_path: media.thumbnail_path,
+      })
+    },
+    onHandled: onDeepLinkHandled,
+  })
 
   const showTranscriptVideo = useCallback(
     (visible: boolean) => setVideoSource(visible ? "standalone" : null),

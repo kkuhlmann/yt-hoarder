@@ -6,6 +6,7 @@ none of which the type system can express.
 """
 
 import inspect
+from datetime import datetime
 
 from repositories.media_details import build_media_scope_subquery
 from services.transcript import (
@@ -47,6 +48,9 @@ def test_param_names_never_collide_with_the_hand_bound_ones():
         date_year=2024,
         date_month=3,
         include_owned=True,
+        channels=['NASA', 'ESA'],
+        released_from=datetime(2024, 1, 1),
+        released_to=datetime(2025, 1, 1),
     )
 
     assert set(params).isdisjoint(RESERVED_PARAM_NAMES)
@@ -58,6 +62,19 @@ def test_expanding_bindparam_is_rendered():
     # Without render_postcompile this is a [POSTCOMPILE_tag_id_1] token no driver binds.
     assert 'POSTCOMPILE' not in sql
     assert sorted(v for k, v in params.items() if k.startswith('tag_id')) == [7, 8]
+
+
+def test_channels_expand_and_are_bound_never_inlined():
+    sql, params = build_media_scope_subquery(rating_user_id=1, channels=['NASA', "O'Brien"])
+
+    assert 'POSTCOMPILE' not in sql
+    assert "O'Brien" not in sql
+    assert {'NASA', "O'Brien"} <= set(params.values())
+
+
+def test_an_empty_channel_list_narrows_to_nothing_rather_than_nothing_filtered():
+    # A caller whose channel names all failed to resolve must not get the whole library.
+    assert build_media_scope_subquery(rating_user_id=1, channels=[]) is not None
 
 
 def test_search_text_is_bound_never_inlined():

@@ -152,6 +152,25 @@ class User(SQLModel, table=True):
     recovery_code_expires_at: datetime | None = Field(default=None)
 
 
+class PersonalAccessToken(SQLModel, table=True):
+    """A bearer credential for the MCP endpoint, acting as one user.
+
+    Only a SHA-256 of the token is stored. The token carries 32 random bytes, so a
+    fast hash is safe, where bcrypt's ~250 ms would be paid on every MCP request.
+    """
+
+    __tablename__ = 'personal_access_tokens'
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key='users.id', ondelete='CASCADE', index=True)
+    name: str = Field(max_length=64)
+    token_hash: str = Field(unique=True, index=True)
+    token_prefix: str
+    created_at: datetime = Field(default_factory=lambda: utc_now())
+    last_used_at: datetime | None = Field(default=None)
+    expires_at: datetime | None = Field(default=None)
+
+
 class MediaDetails(SQLModel, table=True):
     __tablename__ = 'media_details'
     __table_args__ = (

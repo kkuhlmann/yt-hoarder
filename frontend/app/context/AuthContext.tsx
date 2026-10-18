@@ -14,6 +14,8 @@ type User = {
   must_change_password: boolean
   geo_background_preset: string | null
   has_geo_background: boolean
+  /** Instance-wide: whether the MCP endpoint is on, so token management is offered. */
+  mcp_enabled?: boolean
 }
 
 type AuthState = {

@@ -113,6 +113,28 @@ describe("MobileNavMenu", () => {
     expect(screen.getByText("Admin view")).toBeDefined()
   })
 
+  it("offers MCP access tokens only when its owner passes a handler", () => {
+    // NavigationBar omits the handler while the MCP server is disabled.
+    renderMenu()
+    openMenu()
+    expect(screen.queryByText("MCP access tokens…")).toBeNull()
+
+    cleanup()
+    const onOpenAccessTokens = vi.fn()
+    renderMenu({ onOpenAccessTokens })
+    openMenu()
+    fireEvent.click(screen.getByText("MCP access tokens…"))
+    expect(onOpenAccessTokens).toHaveBeenCalledOnce()
+  })
+
+  it("hides MCP access tokens while offline", () => {
+    mockOffline.mockReturnValue({ offlineMode: true, setOfflineMode: vi.fn() })
+    renderMenu({ onOpenAccessTokens: vi.fn() })
+    openMenu()
+
+    expect(screen.queryByText("MCP access tokens…")).toBeNull()
+  })
+
   it("asks its owner to open the storage dialog rather than opening one itself", () => {
     // The dialog is owned by NavigationBar precisely because this menu unmounts
     // its own children on select.

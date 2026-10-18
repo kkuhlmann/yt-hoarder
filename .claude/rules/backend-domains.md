@@ -44,6 +44,16 @@ are searched. `transcript_embeddings` has no ORM model, so the bridge is
   makes the planner choose the index path, so `test_scoped_vector_cte_is_materialized` pins the
   keyword rather than the behaviour.
 
+Two more rules came with the MCP tools, which call `get_hybrid_search_results` with filters the UI
+never sends (`channels`, `released_from`/`released_to`, a separate `fts_text`):
+- **New filters belong in `_build_media_conditions`, i.e. in the scope, never in an outer `WHERE`**
+  on the search query. Only the scope reaches the `MATERIALIZED` exact path; an outer filter is
+  exactly the post-filter that silently returns too few rows. `channels=[]` deliberately matches
+  nothing, so a caller whose names all failed to resolve can't get the whole library back.
+- **`semantic_cache`'s key is a hand-written tuple: every parameter that changes the result must be
+  in it**, or a call differing only in that parameter is served another call's hits. The cache also
+  returns its own list object, so callers must copy, never annotate hits in place.
+
 ## Embeddings (`services/embeddings.py`)
 
 `services/embeddings.py` — `OnnxEmbedder`: all-MiniLM-L6-v2 on onnxruntime, replacing sentence-transformers so

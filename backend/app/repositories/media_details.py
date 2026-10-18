@@ -1,4 +1,5 @@
 import calendar
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import and_, asc, case, delete, desc, func, or_
@@ -130,6 +131,9 @@ def _build_media_conditions(
     date_year: int | None = None,
     date_month: int | None = None,
     include_owned: bool = False,
+    channels: list[str] | None = None,
+    released_from: datetime | None = None,
+    released_to: datetime | None = None,
 ) -> list:
     """Build WHERE conditions shared by get_all_media_details and get_media_stats.
 
@@ -142,6 +146,11 @@ def _build_media_conditions(
     transcript search needs it: it spans every status, so it never reaches the
     owner_id branch below, and a soft delete removes every MediaAccess row for the
     media including the owner's.
+
+    channels / released_from / released_to narrow by any of several channels and by an
+    upload-date range (released_to exclusive), for MCP transcript search. An empty
+    channels list matches nothing rather than everything: a caller whose channel names
+    all failed to resolve must not silently get the whole library back.
     """
     conditions = []
 
@@ -201,6 +210,20 @@ def _build_media_conditions(
             end = datetime(date_year + 1, 1, 1)
         conditions.append(and_(field >= start, field < end))
 
+    conditions.extend(_channel_and_release_conditions(channels, released_from, released_to))
+    return conditions
+
+
+def _channel_and_release_conditions(
+    channels: list[str] | None, released_from: datetime | None, released_to: datetime | None
+) -> list:
+    conditions = []
+    if channels is not None:
+        conditions.append(func.coalesce(MediaDetails.channel, UNKNOWN_CHANNEL).in_(channels))
+    if released_from is not None:
+        conditions.append(MediaDetails.release_timestamp >= released_from)
+    if released_to is not None:
+        conditions.append(MediaDetails.release_timestamp < released_to)
     return conditions
 
 
@@ -236,6 +259,63 @@ async def count_scoped_media(**filters) -> int:
     async with db.get_async_session() as session:
         result = await session.execute(stmt)
         return result.scalar_one()
+
+
+@dataclass(frozen=True)
+class TranscribedChannel:
+    channel: str
+    video_count: int
+    undated_count: int
+    first_release: datetime | None
+    last_release: datetime | None
+
+
+def _transcribed_media_conditions(user_id: int) -> list:
+    """Media the user can see that have at least one transcript block.
+
+    include_owned for the same reason transcript search passes it: a soft delete
+    drops the owner's MediaAccess row, but they keep the transcript.
+    """
+    conditions = _build_media_conditions(user_id=user_id, include_owned=True)
+    conditions.append(MediaDetails.id.in_(sa_select(TranscriptBlock.media_details_id)))
+    return conditions
+
+
+async def get_transcribed_channels(user_id: int) -> list[TranscribedChannel]:
+    """Per-channel counts and upload-date span of the user's transcribed media, largest first."""
+    channel_key = func.coalesce(MediaDetails.channel, UNKNOWN_CHANNEL)
+    stmt = (
+        sa_select(
+            channel_key,
+            func.count(),
+            func.count().filter(MediaDetails.release_timestamp.is_(None)),
+            func.min(MediaDetails.release_timestamp),
+            func.max(MediaDetails.release_timestamp),
+        )
+        .where(and_(*_transcribed_media_conditions(user_id)))
+        .group_by(channel_key)
+        .order_by(func.count().desc(), channel_key)
+    )
+    async with db.get_async_session() as session:
+        result = await session.execute(stmt)
+        return [TranscribedChannel(*row) for row in result.all()]
+
+
+async def get_recent_transcribed_media(
+    user_id: int, channel: str, limit: int
+) -> list[MediaDetails]:
+    """The channel's most recently uploaded transcribed media the user can see."""
+    conditions = _transcribed_media_conditions(user_id)
+    conditions.append(func.coalesce(MediaDetails.channel, UNKNOWN_CHANNEL) == channel)
+    stmt = (
+        select(MediaDetails)
+        .where(and_(*conditions))
+        .order_by(MediaDetails.release_timestamp.desc().nulls_last(), MediaDetails.id.desc())
+        .limit(limit)
+    )
+    async with db.get_async_session() as session:
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
 
 
 def _unpack_joined_results(result, has_playback_join: bool) -> tuple[list, dict[int, dict]]:

@@ -41,6 +41,17 @@ async def get_user_tags(user_id: int) -> list[dict]:
         ]
 
 
+async def find_tags_by_name(user_id: int, names: list[str]) -> list[Tag]:
+    """The user's tags whose names match any of `names`, ignoring case."""
+    lowered = sorted({name.strip().lower() for name in names if name.strip()})
+    if not lowered:
+        return []
+    async with db.get_async_session() as session:
+        stmt = select(Tag).where(Tag.user_id == user_id, func.lower(Tag.name).in_(lowered))
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+
 async def get_or_create_tag(user_id: int, name: str) -> Tag:
     """Get existing tag or create new one. Name is normalized (stripped, lowercased)."""
     normalized = name.strip().lower()

@@ -3,13 +3,16 @@
 import os
 from unittest.mock import patch
 
+import pytest
 import yaml
+from pydantic import ValidationError
 
 # Import will load defaults since no config file exists during import
 from config import (
     DatabaseSettings,
     EmbeddingSettings,
     LoggingSettings,
+    McpSettings,
     Settings,
     StorageSettings,
     TasksSettings,
@@ -250,6 +253,7 @@ class TestNestedSettingsStructure:
         assert hasattr(settings, 'transcription')
         assert hasattr(settings, 'embedding')
         assert hasattr(settings, 'logging')
+        assert hasattr(settings, 'mcp')
 
     def test_nested_settings_types(self):
         """Nested settings should be of correct types."""
@@ -261,3 +265,36 @@ class TestNestedSettingsStructure:
         assert isinstance(settings.transcription, TranscriptionSettings)
         assert isinstance(settings.embedding, EmbeddingSettings)
         assert isinstance(settings.logging, LoggingSettings)
+        assert isinstance(settings.mcp, McpSettings)
+
+
+class TestMcpSettings:
+    def test_off_by_default(self):
+        mcp = McpSettings()
+
+        assert mcp.enabled is False
+        assert mcp.public_url == ''
+
+    def test_read_from_yaml(self):
+        settings = _create_settings_from_yaml(
+            {'mcp': {'enabled': True, 'public_url': 'https://hoarder.example.com/'}}
+        )
+
+        assert settings.mcp.enabled is True
+        assert settings.mcp.public_url == 'https://hoarder.example.com'
+
+    def test_env_fills_in_what_yaml_leaves_unset(self):
+        with patch.dict(os.environ, {'MCP__ENABLED': 'true'}):
+            assert McpSettings().enabled is True
+
+    @pytest.mark.parametrize(
+        'url', ['nas:8000', 'ftp://nas', 'https://nas/?x=1', 'https://nas/#frag', 'https://']
+    )
+    def test_public_url_must_be_a_plain_web_origin(self, url):
+        with pytest.raises(ValidationError):
+            McpSettings(public_url=url)
+
+    def test_public_url_may_carry_a_path_prefix(self):
+        assert McpSettings(public_url=' http://nas:8000/hoarder/ ').public_url == (
+            'http://nas:8000/hoarder'
+        )

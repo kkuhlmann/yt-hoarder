@@ -662,7 +662,8 @@ def _row_to_dict(row) -> dict:
         'start_time': row.start_time,
         'end_time': row.end_time,
         # Every consumer of a search hit is a media surface: `duration` drives the
-        # clip editor's range and zoom, `thumbnail_path` the lock-screen artwork.
+        # clip editor's range and zoom, `thumbnail_path` the lock-screen artwork,
+        # `release_timestamp` the upload date MCP results cite.
         # All three query builders must project the same columns or this raises.
         'media_details': {
             'id': row.md_id,
@@ -673,6 +674,7 @@ def _row_to_dict(row) -> dict:
             'status': row.status,
             'duration': row.duration,
             'thumbnail_path': row.thumbnail_path,
+            'release_timestamp': row.release_timestamp,
         },
     }
 
@@ -768,6 +770,10 @@ async def get_hybrid_search_results(
     date_field: str | None = None,
     date_year: int | None = None,
     date_month: int | None = None,
+    channels: list[str] | None = None,
+    released_from: datetime | None = None,
+    released_to: datetime | None = None,
+    fts_text: str | None = None,
 ) -> list[dict]:
     """
     Search transcript blocks using hybrid keyword + vector search with Reciprocal Rank Fusion.
@@ -783,6 +789,12 @@ async def get_hybrid_search_results(
 
     Args:
         user_id: Optional user ID to filter by access. None = no filter (admin view).
+        channels / released_from / released_to: narrow the scope like the other filters
+            (released_to exclusive); see `_build_media_conditions`.
+        fts_text: the full-text side's query when it should differ from the embedded
+            `search_query`, so exact names can boost a paraphrased semantic query.
+
+    The returned list is the cached object itself: callers must not mutate it.
     """
     cache_key = (
         search_query,
@@ -798,6 +810,12 @@ async def get_hybrid_search_results(
         date_field,
         date_year,
         date_month,
+        # Every parameter that changes the result belongs here, or a call differing
+        # only in it is served another call's hits.
+        tuple(channels) if channels is not None else None,
+        released_from,
+        released_to,
+        fts_text,
     )
     if cache_key in semantic_cache:
         return semantic_cache[cache_key]
@@ -813,6 +831,9 @@ async def get_hybrid_search_results(
         date_field=date_field,
         date_year=date_year,
         date_month=date_month,
+        channels=channels,
+        released_from=released_from,
+        released_to=released_to,
     )
     # Nothing in scope: answer without paying for an embedding.
     if scope is not None and scope.empty:
@@ -821,9 +842,11 @@ async def get_hybrid_search_results(
     if semantic_weight == 1.0:
         results = await _semantic_search(model, search_query, limit, scope)
     elif semantic_weight == 0.0:
-        results = await _keyword_search(model, search_query, limit, scope)
+        results = await _keyword_search(model, search_query, limit, scope, fts_text)
     else:
-        results = await _hybrid_rrf_search(model, search_query, semantic_weight, limit, scope)
+        results = await _hybrid_rrf_search(
+            model, search_query, semantic_weight, limit, scope, fts_text
+        )
 
     semantic_cache[cache_key] = results
     return results
@@ -855,6 +878,7 @@ async def _semantic_search(
                 md.status,
                 md.duration,
                 md.thumbnail_path,
+                md.release_timestamp,
                 1.0 - s.dist as score,
                 NULL::float as fts_rank
             FROM scoped_vec s
@@ -878,6 +902,7 @@ async def _semantic_search(
                 md.status,
                 md.duration,
                 md.thumbnail_path,
+                md.release_timestamp,
                 1.0 - (te.embedding <=> :query) as score,
                 NULL::float as fts_rank
             FROM transcript_embeddings te
@@ -904,11 +929,12 @@ async def _keyword_search(
     search_query: str,
     limit: int,
     scope: _MediaScope | None = None,
+    fts_text: str | None = None,
 ) -> list[dict]:
     """Pure keyword search via native PostgreSQL FTS. Ranked by ts_rank_cd, display score is cosine similarity."""
     query_embedding = model.encode([search_query], normalize_embeddings=True)[0]
     query_str = _embedding_to_pgvector_str(query_embedding.tolist())
-    fts_query = _build_fts_query(search_query)
+    fts_query = _build_fts_query(fts_text or search_query)
 
     sql = f"""
         WITH fts_ranked AS (
@@ -934,6 +960,7 @@ async def _keyword_search(
             md.status,
             md.duration,
             md.thumbnail_path,
+            md.release_timestamp,
             1.0 - (te.embedding <=> :embedding) as score,
             fr.fts_rank as fts_rank
         FROM fts_ranked fr
@@ -960,11 +987,12 @@ async def _hybrid_rrf_search(
     semantic_weight: float,
     limit: int,
     scope: _MediaScope | None = None,
+    fts_text: str | None = None,
 ) -> list[dict]:
     """Hybrid search using RRF for ranking, cosine similarity for display score."""
     query_embedding = model.encode([search_query], normalize_embeddings=True)[0]
     query_str = _embedding_to_pgvector_str(query_embedding.tolist())
-    fts_query = _build_fts_query(search_query)
+    fts_query = _build_fts_query(fts_text or search_query)
 
     keyword_weight = 1.0 - semantic_weight
     candidate_limit = limit * 3  # Fetch more candidates for better fusion
@@ -1021,6 +1049,7 @@ async def _hybrid_rrf_search(
             md.status,
             md.duration,
             md.thumbnail_path,
+            md.release_timestamp,
             1.0 - (te.embedding <=> :embedding) as score,
             k.fts_rank as fts_rank
         FROM transcript_blocks tb

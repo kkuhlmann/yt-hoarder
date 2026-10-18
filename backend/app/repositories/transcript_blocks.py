@@ -1,4 +1,4 @@
-from sqlalchemy import delete, text
+from sqlalchemy import and_, delete, text
 from sqlmodel import select
 
 from database import db
@@ -19,6 +19,30 @@ async def delete_transcript_block_by_media_details_id(media_details_id: int) -> 
             f'Deleted {deleted_count} transcript blocks for media_details.id: {media_details_id}'
         )
         return deleted_count
+
+
+async def get_blocks_in_window(
+    media_details_id: int, start: float, end: float | None, limit: int
+) -> list[TranscriptBlock]:
+    """Blocks of one media overlapping [start, end), in playback order.
+
+    `end=None` reads to the end of the transcript. Access is the caller's to check.
+    """
+    conditions = [
+        TranscriptBlock.media_details_id == media_details_id,
+        TranscriptBlock.end_time > start,
+    ]
+    if end is not None:
+        conditions.append(TranscriptBlock.start_time < end)
+    async with db.get_async_session() as session:
+        stmt = (
+            select(TranscriptBlock)
+            .where(and_(*conditions))
+            .order_by(TranscriptBlock.start_time, TranscriptBlock.id)
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
 
 
 # --- Sync functions (job bodies run in lane threads / the ML child) ---
