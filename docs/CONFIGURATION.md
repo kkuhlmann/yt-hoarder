@@ -143,7 +143,7 @@ reached.
 
 ## AI agents (MCP)
 
-yt-hoarder can serve an [MCP](https://modelcontextprotocol.io) endpoint so an AI agent you run
+YT-Hoarder can serve an [MCP](https://modelcontextprotocol.io) endpoint so an AI agent you run
 yourself can research your transcript library: *"What did this channel say about X in 2025?"*,
 answered with a summary, citations, upload dates and links to the exact second. The app never calls
 an AI service; connect whichever MCP client you like, such as Claude Code, LM Studio or Cursor.
@@ -202,7 +202,7 @@ across an untrusted network.
 | `get_transcript` | Reads a video's transcript around a moment, or page by page |
 
 **`public_url` and in-app links.** Every result links both to the source (`youtube.com/…&t=754`) and
-into yt-hoarder's own player (`/?media=123&t=754`), which also works for audio and for videos since
+into YT-Hoarder's own player (`/?media=123&t=754`), which also works for audio and for videos since
 removed from YouTube. With `public_url` empty, in-app links use the address the agent connected to,
 which is right when your browser and the agent reach the server by the same name. Set it to the
 address you open the app at when they differ, or when a reverse proxy rewrites the `Host` header.

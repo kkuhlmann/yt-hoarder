@@ -165,7 +165,7 @@ navigation bar. Changing or resetting a password signs that account out on every
 
 ### An admin forgot their password
 
-Recovery requires access to the machine yt-hoarder runs on; that requirement stands in for an email
+Recovery requires access to the machine YT-Hoarder runs on; that requirement stands in for an email
 inbox. Click *Admin account recovery* on the sign-in page and enter the admin username. A single-use
 code is written to `data/admin-recovery.txt` inside the install directory:
 
