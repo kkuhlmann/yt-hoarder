@@ -214,6 +214,14 @@ Lifecycle hooks (`orchestrator/hooks.py`) and sprite generation are covered in
 `services/transcript.py` chunks audio through ffmpeg rather than loading it whole, and extracts at
 **32 kbps / 16 kHz mono** — Whisper's expected input, so anything richer is wasted bytes.
 
+**Captions are best-effort and must never fail a download.** A video with no `en` track just logs
+and carries on, but a *listed* track whose fetch fails (a 429 or 403 from the caption endpoint)
+makes yt-dlp's `_write_subtitles` raise `DownloadError` before any media moves. Left alone that
+retried the whole download to FAILED and the transcript never reached Whisper, so
+`_download_with_fallback` (`tasks/downloads.py`) re-runs once with `with_subtitles=False` and the
+transcript job falls through to Whisper. Don't reach for `ignoreerrors=True` instead: it swallows
+real media errors too, and a download that fetched nothing would return as a success.
+
 ## yt-dlp Configuration
 
 Browser impersonation and player-client settings avoid YouTube blocking. The two facts that matter

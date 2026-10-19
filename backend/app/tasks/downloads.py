@@ -36,6 +36,7 @@ from ytdlp.options import (
     download_quality_to_ytdlp,
 )
 from ytdlp.playlists import is_repeat_download
+from ytdlp.subtitles import is_subtitle_download_error
 from ytdlp.urls import get_url_hash
 
 SUBTITLE_EXTENSIONS = (
@@ -518,6 +519,25 @@ def _handle_quota_exceeded(
     raise SkipJob
 
 
+def _next_attempt(
+    e: DownloadError, dto: DownloadJobDTO, *, use_fallback_format: bool, with_subtitles: bool
+) -> tuple[bool, bool]:
+    """The (use_fallback_format, with_subtitles) to re-run with after `e`, else re-raise it.
+
+    Each fallback is taken at most once, so a download makes at most three attempts.
+    """
+    if with_subtitles and is_subtitle_download_error(e):
+        logger.warning(
+            f'Captions failed to download for {dto.url}; retrying without them, '
+            f'so the transcript falls back to Whisper: {e}'
+        )
+        return use_fallback_format, False
+    if not use_fallback_format and _is_format_not_available_error(e):
+        logger.warning(f'Format not available, retrying with fallback: {e}')
+        return True, with_subtitles
+    raise e
+
+
 def _download_with_fallback(
     ydl: YoutubeDL,
     ydl_opts: dict,
@@ -530,11 +550,13 @@ def _download_with_fallback(
     *,
     cookie_file: str | None,
 ) -> None:
-    """Download using extracted info, falling back to a different format on failure.
+    """Download using extracted info, re-running with fallback options on failure.
 
     First attempts process_ie_result (reuses already-extracted info, avoids a second
-    network call). If the requested format isn't available, creates a fresh YoutubeDL
-    with fallback format options and retries via full download.
+    network call). Two failures are recoverable, each by a fresh YoutubeDL and a full
+    download: a requested format that isn't available (fallback format + FFmpeg
+    conversion), and a caption track that failed to download (no subtitles, so the
+    transcript job uses Whisper instead).
 
     Args:
         ydl: The primary YoutubeDL instance
@@ -551,28 +573,38 @@ def _download_with_fallback(
     try:
         ydl.process_ie_result(download_info, download=True)
     except DownloadError as e:
-        if _is_format_not_available_error(e):
-            # This needs a fresh YoutubeDL instance with different format options.
-            logger.warning(f'Format not available, retrying with fallback: {e}')
-            md_dto = dto.media_details
-            ydl_opts_fallback = create_ydl_options(
-                dto,
-                quality=download_quality_to_ytdlp(dto.download_quality),
-                audio_abr_cap=audio_quality_to_abr_cap(dto.audio_quality),
-                sub_directory=sub_directory,
-                extract_flat=False,
-                use_fallback_format=True,
-                cookie_file=cookie_file,
-            )
-            ydl_opts_fallback['outtmpl'] = ydl_opts['outtmpl']
-            ydl_opts_fallback['progress_hooks'] = [progress_hook]
-            ydl_opts_fallback['postprocessor_hooks'] = [pp_hook]
-            with YoutubeDL(ydl_opts_fallback) as ydl_fb:
+        use_fallback_format, with_subtitles = _next_attempt(
+            e, dto, use_fallback_format=False, with_subtitles=True
+        )
+    else:
+        return
+
+    md_dto = dto.media_details
+    while True:
+        ydl_opts_retry = create_ydl_options(
+            dto,
+            quality=download_quality_to_ytdlp(dto.download_quality),
+            audio_abr_cap=audio_quality_to_abr_cap(dto.audio_quality),
+            sub_directory=sub_directory,
+            extract_flat=False,
+            use_fallback_format=use_fallback_format,
+            cookie_file=cookie_file,
+            with_subtitles=with_subtitles,
+        )
+        ydl_opts_retry['outtmpl'] = ydl_opts['outtmpl']
+        ydl_opts_retry['progress_hooks'] = [progress_hook]
+        ydl_opts_retry['postprocessor_hooks'] = [pp_hook]
+        try:
+            with YoutubeDL(ydl_opts_retry) as ydl_retry:
                 if md_orm:
-                    ydl_fb.add_post_processor(YtPostProcessor(md_orm.id))
-                ydl_fb.download([md_dto.url if md_dto else dto.url])
+                    ydl_retry.add_post_processor(YtPostProcessor(md_orm.id))
+                ydl_retry.download([md_dto.url if md_dto else dto.url])
+        except DownloadError as e:
+            use_fallback_format, with_subtitles = _next_attempt(
+                e, dto, use_fallback_format=use_fallback_format, with_subtitles=with_subtitles
+            )
         else:
-            raise
+            return
 
 
 def _post_download_update(dto: DownloadJobDTO, download_info: dict | None) -> dict:

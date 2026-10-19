@@ -13,6 +13,7 @@ from models import DownloadJob
 from repositories import media_details as md_repo
 from repositories import settings as settings_repo
 from schemas import DownloadJobDTO
+from ytdlp.subtitles import SUBTITLE_DOWNLOAD_ERROR
 from ytdlp.urls import is_youtube_url
 
 AUDIO_FORMATS = ('m4a', 'mp3', 'opus', 'wav', 'flac')
@@ -183,6 +184,11 @@ class YtDlLogger:
         logger.warning(msg)
 
     def error(self, msg):
+        # The download recovers by re-running without subtitles (tasks.downloads), so a
+        # failed caption fetch is not an error of the job.
+        if SUBTITLE_DOWNLOAD_ERROR in msg:
+            logger.warning(msg)
+            return
         logger.error(msg)
 
 
@@ -289,6 +295,7 @@ def create_ydl_options(
     progress_hooks: list | None = None,
     use_fallback_format: bool = False,
     cookie_file: str | None = None,
+    with_subtitles: bool = True,
 ) -> dict:
     """
     Create youtube-dl options dictionary based on the given DownloadJob or DTO.
@@ -305,6 +312,8 @@ def create_ydl_options(
         use_fallback_format: If True, use generic format with FFmpeg conversion for compatibility.
         cookie_file: Path to a cookie file for this run, or None. Resolved by
             ytdlp.cookies.cookie_session, which owns the mode decision.
+        with_subtitles: False leaves the captions out even when the job wants a
+            transcript, for the re-run after a caption fetch failed.
 
     Returns:
         dict: Options dictionary for youtube-dl.
@@ -376,12 +385,15 @@ def create_ydl_options(
         logger.debug(f'create_ydl_options using impersonation target: {impersonate_target}')
         download_options['impersonate'] = impersonate_target
 
-    if download_job.generate_transcript:
-        # Download subtitles for transcript generation (yt-dlp silently skips if unavailable)
+    if download_job.generate_transcript and with_subtitles:
+        # Captions are best-effort. A video with no track goes on without one; a listed
+        # track whose fetch fails raises instead, which _download_with_fallback answers by
+        # re-running without them. Either way the transcript falls back to Whisper.
         download_options['writesubtitles'] = True
         download_options['writeautomaticsub'] = True
         download_options['subtitleslangs'] = ['en']
-        download_options['subtitlesformat'] = 'json3'
+        # VTT for a track that has no json3; ytdlp.subtitles parses both.
+        download_options['subtitlesformat'] = 'json3/vtt'
 
     # Read app settings (cached 60s TTL) for throttling, cookies and YouTube player client
     app_settings = settings_repo.sync_get_settings()

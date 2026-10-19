@@ -212,7 +212,7 @@ The toggles beside the URL box on the **Downloads** tab. They apply to that subm
 | **Audio Only** | Downloads audio instead of video, saved as m4a to the audio path. Also switches the quality selector to bitrate tiers. |
 | **Playlist** | Treats the URL as a playlist and expands it into one download per video. Off, a `watch?v=…&list=…` URL downloads only the single video it points at. |
 | **Overwrite** | Re-downloads a URL already in your library, replacing the existing copy and its transcript. Off, an already-downloaded URL is skipped. |
-| **Transcript** | Transcribes the item with Whisper after it downloads, which is what makes it searchable by spoken content. |
+| **Transcript** | Makes the item searchable by spoken content. Uses the video's English YouTube captions (manual or auto-generated) when they can be fetched, and transcribes it with Whisper after it downloads otherwise — a caption fetch that fails never fails the download. |
 | **Quality** | Caps the resolution — **Best** takes the highest available, otherwise the best format at or below the height you pick (1440p–360p). |
 | **Quality** (audio-only) | Caps the bitrate. **Best** and **128 kbps** copy YouTube's native AAC stream untouched; 96/64/48 kbps re-encode down to hit the target. |
 
