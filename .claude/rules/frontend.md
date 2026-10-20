@@ -61,6 +61,13 @@ A new playback surface should be one more host, not a second copy of the panel.
   refuses anyone else. Nothing shows offline.
 - **`TranscriptPanel`'s search keeps passages containing every typed word**, and the list stops
   auto-scrolling while a search is active, so results don't move under the user.
+- **`TranscriptPanel` re-renders at playback rate, but its passages mustn't.** Hosts pass a new
+  `currentTime` several times a second and a fresh `onSeek` each time, and a 10-hour transcript is
+  ~1,800 passages. So rows are `memo`ised with props that hold still between ticks (`terms`, `shown`
+  and the highlight `pattern` are `useMemo`d), and a click seeks through one handler on the `<ol>`
+  rather than a callback per row. That leaves a tick redrawing only the two rows whose highlight moves.
+  There is no React Compiler in the build, so nothing memoises for you. Rows also carry
+  `content-visibility: auto`, so the browser skips laying out the ones out of view.
 - **`TRANSCRIPTS_SCOPE` is not a status.** `scopeParams` (`lib/mediaScope.ts`) turns it into
   `has_transcript=true` for the list, groups and stats. Its rows mix three origins, so its actions
   (`transcriptsViewActions`) decide per row rather than per scope. The type chip and the stars go

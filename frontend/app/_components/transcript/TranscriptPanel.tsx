@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react"
 import { MagnifyingGlassIcon, XMarkIcon } from "@heroicons/react/20/solid"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
@@ -12,12 +12,19 @@ import {
   type TranscriptBlock,
 } from "./transcript"
 
-/** `text` with every occurrence of `terms` marked. */
-function highlightTerms(text: string, terms: string[]): ReactNode {
-  if (terms.length === 0) return text
+/** Matches any of `terms`, case-insensitively; null when there are none. */
+function termPattern(terms: string[]): RegExp | null {
+  if (terms.length === 0) return null
   const escaped = terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-  // A capturing split puts every match at an odd index, so no stateful regex test.
-  return text.split(new RegExp(`(${escaped.join("|")})`, "gi")).map((part, i) =>
+  return new RegExp(`(${escaped.join("|")})`, "gi")
+}
+
+/** `text` with every match of `pattern` marked. */
+function highlightTerms(text: string, pattern: RegExp | null): ReactNode {
+  if (!pattern) return text
+  // A capturing split puts every match at an odd index, and split never reads lastIndex,
+  // so every row can share the one global pattern.
+  return text.split(pattern).map((part, i) =>
     i % 2 === 1 ? (
       <mark key={i} className="bg-matrix/20 text-matrix font-semibold rounded px-0.5">
         {part}
@@ -27,6 +34,42 @@ function highlightTerms(text: string, terms: string[]): ReactNode {
     )
   )
 }
+
+/**
+ * One passage. Memoised, and its props hold still between playback ticks, so a tick
+ * redraws only the two rows whose highlight moves; content-visibility lets the browser
+ * skip laying out the rows out of view.
+ */
+const TranscriptRow = memo(function TranscriptRow({
+  block,
+  index,
+  active,
+  pattern,
+}: {
+  block: TranscriptBlock
+  index: number
+  active: boolean
+  pattern: RegExp | null
+}) {
+  return (
+    <li
+      data-index={index}
+      className="[content-visibility:auto] [contain-intrinsic-size:auto_5rem]"
+    >
+      <button
+        className={cn(
+          "w-full text-left flex gap-3 rounded px-2 py-1.5 text-sm transition-colors",
+          active ? "bg-matrix/10 text-text-primary" : "text-text-secondary hover:bg-bg-surface"
+        )}
+      >
+        <span className="font-mono text-xs text-matrix shrink-0 pt-0.5 w-14">
+          {formatTime(block.start_time)}
+        </span>
+        <span className="leading-snug">{highlightTerms(block.text, pattern)}</span>
+      </button>
+    </li>
+  )
+})
 
 /**
  * One item's transcript, searchable, following playback. Clicking a passage seeks.
@@ -48,9 +91,10 @@ export function TranscriptPanel({
 }) {
   const [query, setQuery] = useState("")
   const listRef = useRef<HTMLOListElement>(null)
-  const terms = transcriptQueryTerms(query)
+  const terms = useMemo(() => transcriptQueryTerms(query), [query])
   const searching = terms.length > 0
-  const shown = filterTranscriptBlocks(blocks, terms)
+  const shown = useMemo(() => filterTranscriptBlocks(blocks, terms), [blocks, terms])
+  const pattern = useMemo(() => termPattern(terms), [terms])
   const active = activeBlockIndex(blocks, currentTime)
 
   useEffect(() => {
@@ -59,6 +103,13 @@ export function TranscriptPanel({
       ?.querySelector(`[data-index="${active}"]`)
       ?.scrollIntoView?.({ block: "nearest", behavior: "smooth" })
   }, [active, searching])
+
+  // One handler for the whole list rather than one per row: hosts pass a fresh onSeek
+  // with every tick, which would otherwise redraw every passage several times a second.
+  const seekClicked = (e: MouseEvent<HTMLOListElement>) => {
+    const row = (e.target as Element).closest<HTMLElement>("[data-index]")
+    if (row) onSeek(blocks[Number(row.dataset.index)].start_time)
+  }
 
   return (
     <div className={cn("flex flex-col min-h-0 gap-2", className)}>
@@ -93,29 +144,20 @@ export function TranscriptPanel({
           {shown.length} of {blocks.length} passages
         </p>
       )}
-      <ol ref={listRef} className="min-h-0 flex-1 overflow-y-auto space-y-1 pr-1">
+      <ol ref={listRef} onClick={seekClicked} className="min-h-0 flex-1 overflow-y-auto space-y-1 pr-1">
         {blocks.length === 0 ? (
           <li className="text-sm text-text-muted">This item has no transcript yet.</li>
         ) : shown.length === 0 ? (
           <li className="text-sm text-text-muted">No passages match &ldquo;{query.trim()}&rdquo;.</li>
         ) : (
           shown.map(({ block, index }) => (
-            <li key={block.id} data-index={index}>
-              <button
-                onClick={() => onSeek(block.start_time)}
-                className={cn(
-                  "w-full text-left flex gap-3 rounded px-2 py-1.5 text-sm transition-colors",
-                  index === active
-                    ? "bg-matrix/10 text-text-primary"
-                    : "text-text-secondary hover:bg-bg-surface"
-                )}
-              >
-                <span className="font-mono text-xs text-matrix shrink-0 pt-0.5 w-14">
-                  {formatTime(block.start_time)}
-                </span>
-                <span className="leading-snug">{highlightTerms(block.text, terms)}</span>
-              </button>
-            </li>
+            <TranscriptRow
+              key={block.id}
+              block={block}
+              index={index}
+              active={index === active}
+              pattern={pattern}
+            />
           ))
         )}
       </ol>

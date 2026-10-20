@@ -1,9 +1,21 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { TranscriptPanel } from "./TranscriptPanel"
 
-afterEach(cleanup)
+// Each passage formats its time once per render, so the spy counts row renders.
+const formatTime = vi.hoisted(() => vi.fn())
+vi.mock("@/app/utils", async (importOriginal) => {
+  const utils = await importOriginal<typeof import("@/app/utils")>()
+  formatTime.mockImplementation(utils.formatTime)
+  return { ...utils, formatTime }
+})
+
+const { TranscriptPanel } = await import("./TranscriptPanel")
+
+afterEach(() => {
+  cleanup()
+  formatTime.mockClear()
+})
 
 const blocks = [
   "The rocket engines ignite.",
@@ -66,6 +78,9 @@ describe("TranscriptPanel", () => {
     fireEvent.click(screen.getByText(/Orbit/, { selector: "span, mark" }).closest("button")!)
 
     expect(onSeek).toHaveBeenCalledWith(40)
+
+    fireEvent.click(screen.getByText("0:40"))
+    expect(onSeek).toHaveBeenCalledTimes(2)
   })
 
   it("marks the passage that is playing", () => {
@@ -74,5 +89,25 @@ describe("TranscriptPanel", () => {
     const buttons = screen.getAllByRole("button")
     expect(buttons[1].className).toContain("bg-matrix/10")
     expect(buttons[0].className).not.toContain("bg-matrix/10")
+  })
+
+  it("redraws only the passages whose highlight moves as playback ticks", () => {
+    const { rerender } = render(
+      <TranscriptPanel blocks={blocks} currentTime={21} onSeek={() => {}} />
+    )
+    expect(formatTime).toHaveBeenCalledTimes(3)
+    formatTime.mockClear()
+
+    // Hosts pass a fresh onSeek with every tick.
+    rerender(<TranscriptPanel blocks={blocks} currentTime={22} onSeek={() => {}} />)
+    rerender(<TranscriptPanel blocks={blocks} currentTime={23} onSeek={() => {}} />)
+    expect(formatTime).not.toHaveBeenCalled()
+
+    rerender(<TranscriptPanel blocks={blocks} currentTime={41} onSeek={() => {}} />)
+    expect(formatTime).toHaveBeenCalledTimes(2)
+    formatTime.mockClear()
+
+    fireEvent.change(search(), { target: { value: "rocket" } })
+    expect(formatTime).toHaveBeenCalledTimes(2)
   })
 })
