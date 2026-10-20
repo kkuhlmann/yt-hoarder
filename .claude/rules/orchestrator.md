@@ -173,3 +173,50 @@ touching the sibling sprite row that `on_success` is about to dispatch, hence
 `sync_skip_downstream_transcripts` and the `task_types` filter. Both paths must write *something*:
 `ctx.skip_downstream` only suppresses the in-memory enqueue, so a path that writes nothing strands
 the transcript at `QUEUED` forever.
+
+## The transcript-only chain
+
+The root `AGENTS.md` has why `TRANSCRIPT` is a media type and the end-every-path rule. The parts the
+code can't state:
+
+- **`_run_transcript_only` (`tasks/downloads.py`) decides what to stage and nothing more.**
+  1. Reuse anything an earlier attempt staged.
+  2. Rate-limit sleep: caption fetches talk to YouTube like downloads do.
+  3. A captions-only pass, skipped when `force_whisper_transcription` is on. It sets
+     `ignore_no_formats_error`, since formats don't matter for captions and a video whose formats come
+     back empty can still be indexed from them.
+  4. Parse the caption file (pure Python) only to decide whether audio is needed. An unusable file is
+     *deleted*, or the transcript job would pick it up in place of the Whisper audio.
+  5. Anything short of usable captions downloads `worstaudio/worst` with no re-encode, since Whisper
+     resamples anyway. `YtPostProcessor` records it as `file_path`, which is what recovery reads.
+
+  A subtitle-fetch `DownloadError` goes to Whisper, not to `ctx.retry`.
+- **Staged files are named by URL hash alone**, so `cleanup_task_files`, which matches
+  `'{title} [{hash}]'`, never finds them. `DownloadHooks.on_failure`/`on_cancel` delete them
+  explicitly for TRANSCRIPT jobs. `on_success` writes `POSTPROCESSING`, never `COMPLETE`, and
+  dispatches no sprite.
+- **`TranscriptHooks` end the item.**
+  - `on_success` → `COMPLETE` (stamping `downloaded_at`, which the Transcripts view groups as "Added").
+  - `on_failure` → `FAILED`; `on_cancel` → `CANCELLED`.
+  - Each deletes the staging; `on_retry` keeps it.
+
+  `sync_finish_transcript_only` always clears `file_path` but moves `status` only off an in-flight
+  one (the `_CANCELLABLE_MEDIA_STATUSES` guard), so a late hook can't knock a `COMPLETE` row back.
+- **The thumbnail is staged too, and kept only by `on_success`.** The download job saves YouTube's
+  480px `hqdefault` as `{staging}.thumb.jpg`; `_finish_transcript_only` moves it to
+  `.thumbnails/` **before** deleting the staging, which would otherwise take it, and writes its
+  path in the same UPDATE. Every other ending is then covered by the staging cleanup it already has.
+  The column is only ever *set* there, so a late failure hook can't clear a kept thumbnail.
+- **A queued transcript cancelled by the user runs no hook at all.** So `revoke_task` and the bulk
+  cancel call `finish_transcript_only` for either half of a TRANSCRIPT chain. Skip it and the row sits in
+  `POSTPROCESSING` forever: the subscription filter skips `POSTPROCESSING`, and the sweep keeps the
+  files of anything in flight.
+- **Retrying a TR row that has nothing staged re-runs its download.** That happens after a terminal
+  failure or a cancel, both of which deleted the staging. The download row is `COMPLETE`, which the
+  ordinary retry refuses, so `_retry_transcript_only_from_download` re-arms it directly, with the TR
+  chained behind.
+- **`create_transcript_blocks` raises when a TRANSCRIPT row has neither captions nor a file**, rather
+  than producing an empty transcript that would mark the item done.
+- **The staging sweep (`cleanup_orphaned_transcript_staging`) keeps an in-flight item's files
+  regardless of age.** A Whisper backlog on the serial ml lane can legitimately outlast
+  `cleanup_age_hours`.

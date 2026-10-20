@@ -5,8 +5,9 @@ from sqlalchemy import case, select, update
 
 from database import db
 from logger import logger
-from models import TaskRecord, TaskStatus, TaskType, utc_now
+from models import MediaType, TaskRecord, TaskStatus, TaskType, utc_now
 from repositories import media_details as md_repo
+from ytdlp.files import delete_transcript_staging
 
 from ..errors import InvalidStateError, NotFoundError
 from .crud import SLOT_HOLDING_STATUSES
@@ -46,10 +47,30 @@ async def bulk_cancel_tasks(task_ids: list[str]) -> dict:
                 )
             )
         ).all()
+        # Either half of a transcript-only chain: see revoke_task for why the item is
+        # ended here rather than left to a hook that may never run.
+        transcript_only_urls = (
+            (
+                await session.execute(
+                    select(TaskRecord.download_job_url)
+                    .where(
+                        TaskRecord.task_id.in_(task_ids),
+                        TaskRecord.media_type == MediaType.TRANSCRIPT,
+                        TaskRecord.download_job_url.isnot(None),
+                    )
+                    .distinct()
+                )
+            )
+            .scalars()
+            .all()
+        )
         await session.commit()
 
     for url, media_type in downloads:
         await md_repo.mark_download_cancelled(url, media_type)
+    for url in transcript_only_urls:
+        delete_transcript_staging(url)
+        await md_repo.finish_transcript_only(url, TaskStatus.CANCELLED)
 
     downstream_cancelled = 0
     errors = []

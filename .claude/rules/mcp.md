@@ -90,6 +90,11 @@ Host-rewriting proxy needs `public_url`. In dev, the port is swapped to 3000, be
 arrives at the API on :8000 while the UI is on :3000. Host values outside a strict hostname pattern
 fall back to `localhost` rather than being echoed into a link.
 
+`media_app_url` (`formatting.py`) gives an app link only for a `COMPLETE` item. A transcript-only
+item counts: the deep link opens its embed page, which plays it through YouTube beside the
+transcript. Deleted media that kept its transcript gets the source link alone, since its row isn't
+`COMPLETE`.
+
 ## Testing
 
 - **Tool tests** (`test_mcp_tools.py`) use the SDK's in-memory `Client(server)` inside

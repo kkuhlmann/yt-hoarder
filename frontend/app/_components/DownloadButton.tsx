@@ -9,6 +9,8 @@ import {
   AUDIO_QUALITY_OPTIONS,
   INITIAL_DOWNLOAD_OPTIONS,
   OptionToggle,
+  TRANSCRIPT_ONLY_HINT,
+  formMediaType,
 } from "./downloadOptions"
 import { isValidURL } from "../utils"
 import toast from "react-hot-toast"
@@ -29,18 +31,16 @@ export function DownloadButton({ options, setOptions }: DownloadOptionsProps) {
       return
     }
 
-    const media_type_number = options.audio_only ? "AUDIO" : "VIDEO"
-
     try {
       const response = await axios.post(
         apiUrl('/ytdl/'),
         {
           ...options,
-          media_type: media_type_number,
+          media_type: formMediaType(options),
         }
       )
       if (response.status === 201) {
-        toast.success("Started Download job")
+        toast.success(options.transcript_only ? "Started transcript-only job" : "Started Download job")
       }
     } catch (error) {
       console.error("Error POST to /ytdl/", error)
@@ -81,10 +81,18 @@ export function DownloadButton({ options, setOptions }: DownloadOptionsProps) {
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <OptionToggle
-          label="Audio Only"
-          checked={options.audio_only}
-          onChange={() => setOptions({ ...options, audio_only: !options.audio_only })}
+          label="Transcript Only"
+          title={TRANSCRIPT_ONLY_HINT}
+          checked={options.transcript_only}
+          onChange={() => setOptions({ ...options, transcript_only: !options.transcript_only })}
         />
+        {!options.transcript_only && (
+          <OptionToggle
+            label="Audio Only"
+            checked={options.audio_only}
+            onChange={() => setOptions({ ...options, audio_only: !options.audio_only })}
+          />
+        )}
         <OptionToggle
           label="Playlist"
           checked={options.download_playlist}
@@ -95,12 +103,14 @@ export function DownloadButton({ options, setOptions }: DownloadOptionsProps) {
           checked={options.overwrite}
           onChange={() => setOptions({ ...options, overwrite: !options.overwrite })}
         />
-        <OptionToggle
-          label="Transcript"
-          checked={options.generate_transcript}
-          onChange={() => setOptions({ ...options, generate_transcript: !options.generate_transcript })}
-        />
-        {!options.audio_only && (
+        {!options.transcript_only && (
+          <OptionToggle
+            label="Transcript"
+            checked={options.generate_transcript}
+            onChange={() => setOptions({ ...options, generate_transcript: !options.generate_transcript })}
+          />
+        )}
+        {!options.transcript_only && !options.audio_only && (
           <select
             value={options.download_quality}
             onChange={(e) => setOptions({ ...options, download_quality: e.target.value })}
@@ -113,7 +123,7 @@ export function DownloadButton({ options, setOptions }: DownloadOptionsProps) {
             ))}
           </select>
         )}
-        {options.audio_only && (
+        {!options.transcript_only && options.audio_only && (
           <select
             value={options.audio_quality}
             onChange={(e) => setOptions({ ...options, audio_quality: e.target.value })}

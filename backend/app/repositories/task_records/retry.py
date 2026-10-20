@@ -9,7 +9,7 @@ from sqlmodel import select
 
 from database import db
 from logger import logger
-from models import MediaDetails, TaskRecord, TaskStatus, TaskType
+from models import MediaDetails, MediaType, TaskRecord, TaskStatus, TaskType
 from progress_publisher import publish_status_change
 from serializers import (
     download_job_to_dto,
@@ -17,6 +17,8 @@ from serializers import (
     serialize_download_job,
     serialize_media_details,
 )
+from ytdlp.files import find_staged_audio, transcript_staging_base
+from ytdlp.subtitles import find_subtitle_file
 
 from ..errors import InvalidStateError, NotFoundError
 from .crud import DIRECT_DOWNLOAD_PRIORITY, SUBSCRIPTION_DOWNLOAD_PRIORITY, get_task_by_id
@@ -607,6 +609,70 @@ async def _retry_other_downstream_tasks(
     return total_retried, retried_task_ids
 
 
+def _transcript_only_unstaged(task_record: TaskRecord, serialized_data: dict) -> bool:
+    """A transcript-only item's transcript, with nothing staged left for it to read.
+
+    TranscriptHooks deletes the staged captions or audio when the transcript fails or is
+    cancelled, so retrying the transcript job alone could only fail again.
+    """
+    if task_record.task_type != TaskType.TRANSCRIPT_GENERATION:
+        return False
+    url = serialized_data.get('url')
+    if serialized_data.get('media_type') != MediaType.TRANSCRIPT or not url:
+        return False
+    return not (find_staged_audio(url) or find_subtitle_file(transcript_staging_base(url)))
+
+
+async def _retry_transcript_only_from_download(session, transcript_record: TaskRecord) -> dict:
+    """Retry a transcript-only item by re-running its download, its transcript chained behind.
+
+    The download row is COMPLETE (it staged what it was asked to), which the ordinary retry
+    refuses, so it is re-armed here directly. Both rows get fresh task ids, as any retry does.
+    Commits the caller's session.
+    """
+    download_stmt = select(TaskRecord).where(
+        and_(
+            TaskRecord.task_id.in_(transcript_record.upstream_task_ids or []),
+            TaskRecord.task_type == TaskType.DOWNLOAD,
+        )
+    )
+    download_record = (await session.execute(download_stmt)).scalar_one_or_none()
+    if download_record is None:
+        msg = 'This transcript-only item has no download to re-run; request the URL again.'
+        raise InvalidStateError(msg)
+
+    download_data = await _fetch_download_job_serialized(
+        session, download_record.id, f'download task {download_record.task_id}'
+    )
+    _, new_download_id = await _cancel_and_reassign_task_id(download_record)
+    _reset_task_for_requeue(download_record, 'Retrying task')
+    _, new_transcript_id = await _cancel_and_reassign_task_id(transcript_record)
+    _reset_task_for_requeue(transcript_record, 'Queued - waiting for download')
+    transcript_record.upstream_task_ids = [new_download_id]
+    await session.commit()
+
+    priority = (
+        DIRECT_DOWNLOAD_PRIORITY
+        if download_data.get('subscription_id') is None
+        else SUBSCRIPTION_DOWNLOAD_PRIORITY
+    )
+    await asyncio.to_thread(
+        dispatch_download_chain,
+        download_data=download_data,
+        download_task_id=new_download_id,
+        transcript_task_id=new_transcript_id,
+        priority=priority,
+        download_status_msg='Retrying task',
+        transcript_status_msg='Queued - waiting for download',
+        user_id=download_record.user_id,
+    )
+    logger.info(
+        f'Re-staging transcript-only item: download {new_download_id}, '
+        f'transcript {new_transcript_id}'
+    )
+    return {'retried_count': 2, 'task_ids': [new_download_id, new_transcript_id]}
+
+
 async def retry_task_and_downstream_by_id(
     record_id: int, retry_downstream: bool, overwrite: bool = False
 ) -> dict:
@@ -656,6 +722,8 @@ async def retry_task_and_downstream(
     async with db.get_async_session() as session:
         task_record = await _validate_task_for_retry(session, task_id)
         serialized_data = await _serialize_retry_data(session, task_record, overwrite)
+        if _transcript_only_unstaged(task_record, serialized_data):
+            return await _retry_transcript_only_from_download(session, task_record)
         old_task_id, new_task_id = await _cancel_and_reassign_task_id(task_record)
         _reset_task_for_requeue(task_record, 'Retrying task')
         await session.commit()

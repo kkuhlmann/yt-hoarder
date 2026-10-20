@@ -14,6 +14,7 @@ import {
   NoSymbolIcon,
   MagnifyingGlassIcon,
   MoonIcon,
+  DocumentTextIcon,
 } from "@heroicons/react/20/solid"
 import {
   ExclamationTriangleIcon as ExclamationTriangleOutlineIcon,
@@ -61,6 +62,18 @@ const TASK_TYPE_BADGE: Record<string, string> = {
   MEDIA_CONVERSION: "CV",
   SPRITE_GENERATION: "SPR",
 }
+
+/** The task type, marked when it belongs to a transcript-only item's chain. */
+const TaskTypeBadge = ({ task, className }: { task: TaskRecord; className: string }) => (
+  <Badge
+    variant="outline"
+    className={`font-mono gap-1 ${className}`}
+    title={task.media_type === "TRANSCRIPT" ? "Transcript only: no media is kept" : undefined}
+  >
+    {TASK_TYPE_BADGE[task.task_type ?? ""] ?? task.task_type}
+    {task.media_type === "TRANSCRIPT" && <DocumentTextIcon className="h-3 w-3" />}
+  </Badge>
+)
 
 // `sleeping` is a display state layered over IN_PROGRESS, not a TaskStatus: the row really
 // is running, it just hasn't started transferring yet (tasks/downloads.py _rate_limit_sleep).
@@ -358,16 +371,8 @@ export function TasksTable({
       key: "task_type",
       label: "Type",
       mobile: "badge",
-      renderMobile: (task) => (
-        <Badge variant="outline" className="font-mono text-[10px]">
-          {TASK_TYPE_BADGE[task.task_type ?? ""] ?? task.task_type}
-        </Badge>
-      ),
-      render: (task) => (
-        <Badge variant="outline" className="font-mono text-xs">
-          {TASK_TYPE_BADGE[task.task_type ?? ""] ?? task.task_type}
-        </Badge>
-      ),
+      renderMobile: (task) => <TaskTypeBadge task={task} className="text-[10px]" />,
+      render: (task) => <TaskTypeBadge task={task} className="text-xs" />,
     },
     {
       key: "queue_position",

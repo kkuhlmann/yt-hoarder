@@ -33,6 +33,7 @@ export function GroupFolderCard({
   const avParts: string[] = []
   if (group.video_count) avParts.push(`${group.video_count} video`)
   if (group.audio_count) avParts.push(`${group.audio_count} audio`)
+  if (group.transcript_count) avParts.push(`${group.transcript_count} transcript only`)
   const range = dateRange(group.min_date, group.max_date)
 
   return (

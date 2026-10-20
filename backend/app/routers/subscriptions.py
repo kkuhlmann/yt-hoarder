@@ -2,6 +2,7 @@ from functools import partial
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy.exc import IntegrityError
 
 from dependencies import (
     get_effective_user_id,
@@ -9,14 +10,14 @@ from dependencies import (
     get_required_user_id,
 )
 from logger import logger
-from models import Subscription
+from models import MediaType, Subscription
 from orchestrator import ADD_SUBSCRIPTION_JOB, JobSpec, orch
 from repositories import settings as settings_repo
 from repositories import sharing as sharing_repo
 from repositories import subscription_access as sa_repo
 from repositories import subscriptions as sub_repo
 from routers.sharing_routes import SharingConfig, register_sharing_routes
-from schemas import SubscriptionDTO
+from schemas import SubscriptionDTO, apply_transcript_only_defaults
 from serializers import serialize_subscription
 
 router = APIRouter()
@@ -51,12 +52,17 @@ async def add_subscription(
 ):
     if subscription.string_match == '':
         subscription.string_match = None
+    # The table model is bound directly, so no validator ran; media_type is the unique key's
+    # discriminator and must be set.
+    if subscription.media_type is None:
+        subscription.media_type = MediaType.AUDIO if subscription.audio_only else MediaType.VIDEO
+    apply_transcript_only_defaults(subscription)
 
     if (
         sub_check := await sub_repo.get_subscription_by_details(
             url=subscription.url,
             string_match=subscription.string_match,
-            audio_only=subscription.audio_only,
+            media_type=subscription.media_type,
             user_id=user_id,
         )
     ) is None:
@@ -149,7 +155,14 @@ async def update_subscription(
         ),
     )
 
-    updated_record = await sub_repo.update_subscription(id, update_info)
+    try:
+        updated_record = await sub_repo.update_subscription(id, update_info)
+    except IntegrityError as e:
+        # Switching audio_only moves the row onto the other media type's unique key.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='A subscription for this URL and media type already exists',
+        ) from e
     if updated_record is not None:
         return updated_record
     raise HTTPException(

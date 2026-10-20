@@ -6,7 +6,7 @@ import { act, cleanup, renderHook } from "@testing-library/react"
 // The mock also has to satisfy app/lib/api.ts, which configures axios at import.
 vi.mock("axios", () => {
   const axios = {
-    get: () => new Promise(() => {}),
+    get: vi.fn(() => new Promise(() => {})),
     defaults: { withCredentials: false },
     interceptors: { response: { use: () => {} } },
     isCancel: () => false,
@@ -104,5 +104,31 @@ describe("useDownloadGrouping scope", () => {
       month: undefined,
     })
     expect(result.current.leaf).toBeNull()
+  })
+})
+
+describe("useDownloadGrouping in the Transcripts view", () => {
+  const transcripts = { ...args, status: "TRANSCRIPTS" }
+
+  it("asks for the Transcripts view's folders, not a status's", async () => {
+    const axios = (await import("axios")).default as unknown as {
+      get: ReturnType<typeof vi.fn>
+    }
+    axios.get.mockClear()
+    const { result } = renderHook(() => useDownloadGrouping(transcripts))
+
+    act(() => result.current.setGroupDim("channel"))
+
+    const [, config] = axios.get.mock.calls.at(-1) as [string, { params: Record<string, unknown> }]
+    expect(config.params).toMatchObject({ group_by: "channel", has_transcript: true })
+    expect(config.params).not.toHaveProperty("status")
+  })
+
+  it("calls the download date the added date", () => {
+    const { result } = renderHook(() => useDownloadGrouping(transcripts))
+
+    act(() => result.current.setGroupDim("downloaded"))
+
+    expect(result.current.breadcrumb.dimLabel).toBe("Added date")
   })
 })

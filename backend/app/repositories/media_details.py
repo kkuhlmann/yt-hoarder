@@ -1,13 +1,14 @@
 import calendar
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import and_, asc, case, delete, desc, func, or_
+from sqlalchemy import and_, asc, case, delete, desc, exists, func, or_
 from sqlalchemy import select as sa_select
 from sqlalchemy import update as sa_update
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import aliased, joinedload
 from sqlmodel import select
 
 from database import db
@@ -22,9 +23,11 @@ from models import (
     Tag,
     TaskStatus,
     TranscriptBlock,
+    utc_now,
 )
 from repositories.pagination import page_count
 from services.cleanup import delete_file
+from ytdlp.files import delete_thumbnail, kept_thumbnail_path, move_thumbnail
 
 # Chunk size for url IN (...) lookups — a whole-channel enumeration can be thousands
 # of URLs, well past Postgres' bind-parameter ceiling.
@@ -117,6 +120,32 @@ def _build_access_condition(user_id: int, status: str | None, include_owned: boo
     return MediaDetails.id.in_(accessible_ids)
 
 
+def _accessible_to(user_id: int, media):
+    """`media` (MediaDetails or an alias of it) is the user's own or shared with them."""
+    shared = select(MediaAccess.media_details_id).where(MediaAccess.user_id == user_id)
+    return or_(media.owner_id == user_id, media.id.in_(shared))
+
+
+def _not_superseded_condition(user_id: int):
+    """Hide a transcript-only row once the user can search the same URL's full media.
+
+    A full row counts only when it has transcript blocks, so a downloaded video still
+    awaiting its transcript leaves the transcript-only entry visible meanwhile, and one
+    deleted without keeping its transcript brings the entry back. Decided per viewer,
+    since the full media may be shared with one user and not another.
+    """
+    full = aliased(MediaDetails)
+    superseded = exists().where(
+        and_(
+            full.url == MediaDetails.url,
+            full.media_type != MediaType.TRANSCRIPT,
+            _accessible_to(user_id, full),
+            exists().where(TranscriptBlock.media_details_id == full.id),
+        )
+    )
+    return or_(MediaDetails.media_type != MediaType.TRANSCRIPT, ~superseded)
+
+
 def _build_media_conditions(
     *,
     user_id: int | None = None,
@@ -134,6 +163,8 @@ def _build_media_conditions(
     channels: list[str] | None = None,
     released_from: datetime | None = None,
     released_to: datetime | None = None,
+    media_types: Sequence[MediaType] | None = None,
+    has_transcript: bool = False,
 ) -> list:
     """Build WHERE conditions shared by get_all_media_details and get_media_stats.
 
@@ -151,14 +182,25 @@ def _build_media_conditions(
     upload-date range (released_to exclusive), for MCP transcript search. An empty
     channels list matches nothing rather than everything: a caller whose channel names
     all failed to resolve must not silently get the whole library back.
+
+    media_types limits the result to those types; the library passes LIBRARY_MEDIA_TYPES,
+    while the transcript search passes none so transcript-only rows stay searchable.
+    has_transcript keeps only rows with transcript blocks (the Transcripts view).
+
+    A user-scoped query always drops transcript-only rows the user has superseded with
+    the full media (_not_superseded_condition). The admin all-users view (user_id None)
+    shows every row, duplicates included.
     """
     conditions = []
 
     if status:
         conditions.append(MediaDetails.status == status)
 
+    conditions.extend(_type_and_transcript_conditions(media_types, has_transcript))
+
     if user_id is not None:
         conditions.append(_build_access_condition(user_id, status, include_owned))
+        conditions.append(_not_superseded_condition(user_id))
 
     if search:
         search_condition = _build_search_condition(search)
@@ -211,6 +253,17 @@ def _build_media_conditions(
         conditions.append(and_(field >= start, field < end))
 
     conditions.extend(_channel_and_release_conditions(channels, released_from, released_to))
+    return conditions
+
+
+def _type_and_transcript_conditions(
+    media_types: Sequence[MediaType] | None, has_transcript: bool
+) -> list:
+    conditions = []
+    if media_types is not None:
+        conditions.append(MediaDetails.media_type.in_(media_types))
+    if has_transcript:
+        conditions.append(exists().where(TranscriptBlock.media_details_id == MediaDetails.id))
     return conditions
 
 
@@ -424,21 +477,32 @@ async def _fetch_ratings_and_tags(
 
 
 async def get_media_stats(
-    search: str | None = None, status: str | None = None, user_id: int | None = None
+    search: str | None = None,
+    status: str | None = None,
+    user_id: int | None = None,
+    media_types: Sequence[MediaType] | None = None,
+    has_transcript: bool = False,
 ) -> dict:
     """Get media library statistics, optionally filtered by search and status.
 
     Args:
         search: Optional search string to filter by channel/title (ILIKE)
-        status: Optional status filter (defaults to COMPLETE)
+        status: Optional status filter (defaults to COMPLETE, except in has_transcript mode)
         user_id: Optional user ID to filter by media_access. None = no filter (admin view).
+        media_types / has_transcript: as for _build_media_conditions. has_transcript is the
+            Transcripts view, which spans every status like the transcript search does.
 
     Returns:
         dict with total_downloads, total_transcript_blocks, downloads_with_transcripts
     """
     async with db.get_async_session() as session:
         conditions = _build_media_conditions(
-            user_id=user_id, status=status or TaskStatus.COMPLETE, search=search
+            user_id=user_id,
+            status=None if has_transcript else status or TaskStatus.COMPLETE,
+            search=search,
+            media_types=media_types,
+            has_transcript=has_transcript,
+            include_owned=has_transcript,
         )
         where_clause = and_(*conditions)
 
@@ -490,6 +554,9 @@ def _group_agg_columns(range_field) -> list:
         func.sum(case((MediaDetails.media_type == MediaType.AUDIO, 1), else_=0)).label(
             'audio_count'
         ),
+        func.sum(case((MediaDetails.media_type == MediaType.TRANSCRIPT, 1), else_=0)).label(
+            'transcript_count'
+        ),
     ]
 
 
@@ -504,6 +571,7 @@ def _build_group(key: str, label: str, row, sample_ids: list[int]) -> dict:
         'max_date': row.max_date.isoformat() if row.max_date else None,
         'video_count': int(row.video_count or 0),
         'audio_count': int(row.audio_count or 0),
+        'transcript_count': int(row.transcript_count or 0),
         'sample_media_ids': list(sample_ids),
     }
 
@@ -524,14 +592,20 @@ async def _fetch_samples(
 ) -> dict:
     """Return {raw_group_key: [up to 4 sample media ids]} for the given keys.
 
-    Defaults to the most-recent media per key. `order_by` lets a caller pick a
-    different notion of "first four" — playlists pass PlaylistMedia.position so
-    their collage shows the opening tracks rather than the newest ones.
+    Defaults to the most-recent media per key, those with a thumbnail first so a folder
+    mixing transcript-only items (which never have one) still gets a real collage.
+    `order_by` lets a caller pick a different notion of "first four" — playlists pass
+    PlaylistMedia.position so their collage shows the opening tracks rather than the
+    newest ones.
     """
     if not page_keys:
         return {}
     if order_by is None:
-        order_by = (MediaDetails.created_at.desc(), MediaDetails.id.desc())
+        order_by = (
+            MediaDetails.thumbnail_path.is_(None),
+            MediaDetails.created_at.desc(),
+            MediaDetails.id.desc(),
+        )
     rn = func.row_number().over(partition_by=key_expr, order_by=order_by).label('rn')
     inner = sa_select(MediaDetails.id.label('mid'), key_expr.label('gkey'), rn).select_from(
         MediaDetails
@@ -689,6 +763,8 @@ async def get_media_groups(
     rating_user_id: int | None = None,
     page: int = 1,
     page_size: int | None = None,
+    media_types: Sequence[MediaType] | None = None,
+    has_transcript: bool = False,
 ) -> dict:
     """Aggregate media into folder groups with per-group stats.
 
@@ -697,16 +773,23 @@ async def get_media_groups(
     tag_ids, min_rating, user access) are applied via _build_media_conditions, so grouping
     respects the active library filters.
 
+    media_types / has_transcript are as for _build_media_conditions, so the Transcripts
+    view's folders count exactly what its list and the transcript search will show.
+
     Returns {'page_count': int, 'groups': [ {key, label, count, total_duration,
-    total_size_bytes, min_date, max_date, video_count, audio_count, sample_media_ids} ]}.
+    total_size_bytes, min_date, max_date, video_count, audio_count, transcript_count,
+    sample_media_ids} ]}.
     """
     base_conditions = _build_media_conditions(
         user_id=user_id,
-        status=status,
+        status=None if has_transcript else status,
         search=search,
         tag_ids=tag_ids,
         min_rating=min_rating,
         rating_user_id=rating_user_id,
+        media_types=media_types,
+        has_transcript=has_transcript,
+        include_owned=has_transcript,
     )
     async with db.get_async_session() as session:
         if group_by == 'tag':
@@ -784,12 +867,15 @@ async def get_media_details_by_download_task_record_id(
         return result.scalar_one_or_none()
 
 
-async def soft_delete_media_details_by_id(id: int) -> int:
+async def soft_delete_media_details_by_id(id: int, keep_thumbnail: bool = False) -> int:
     """
     Soft delete a MediaDetails record:
-    - Deletes the media file from disk
+    - Deletes the media file from disk, and its thumbnail unless `keep_thumbnail`
     - Marks the record as DELETED (preserves record for skip logic)
     - Clears file_path and transcript fields
+
+    `keep_thumbnail` is for a delete that keeps the transcript: the Transcripts view still
+    lists the item, so its thumbnail moves out of the media folder to its kept path.
 
     Returns:
         Number of records modified (0 or 1)
@@ -802,6 +888,15 @@ async def soft_delete_media_details_by_id(id: int) -> int:
         if not md:
             return 0
 
+        thumbnail_path = None
+        if keep_thumbnail and md.thumbnail_path:
+            # Before delete_file below, whose sidecar cleanup would take it.
+            thumbnail_path = move_thumbnail(
+                md.thumbnail_path, kept_thumbnail_path(md.url, md.media_type)
+            )
+        else:
+            delete_thumbnail(md.thumbnail_path)
+
         if md.file_path:
             delete_file(md.file_path, cleanup_sidecars=True)
             logger.info(f'Deleted file: {md.file_path}')
@@ -809,7 +904,7 @@ async def soft_delete_media_details_by_id(id: int) -> int:
         md.status = TaskStatus.DELETED
         md.file_path = None
         md.file_size_bytes = None
-        md.thumbnail_path = None
+        md.thumbnail_path = thumbnail_path
         md.transcript_task_record_id = None
 
         await session.commit()
@@ -853,6 +948,8 @@ async def get_all_media_details(
     date_field: str | None = None,
     date_year: int | None = None,
     date_month: int | None = None,
+    media_types: Sequence[MediaType] | None = None,
+    has_transcript: bool = False,
 ) -> dict:
     """Get all MediaDetails with optional filtering and pagination.
 
@@ -863,6 +960,8 @@ async def get_all_media_details(
         rating_user_id: User whose tags/ratings to use for filtering and serialization.
         channel / untagged / date_field+date_year(+date_month): group-folder drill-down
             filters (see get_media_groups).
+        media_types / has_transcript: as for _build_media_conditions. has_transcript is the
+            Transcripts view: every status, with the same widened access as the search.
     """
     logger.info(
         f'get_all_media_details called with sort_by={sort_by}, sort_direction={sort_direction}'
@@ -871,7 +970,7 @@ async def get_all_media_details(
         # Build query with eager loading of task records
         conditions = _build_media_conditions(
             user_id=user_id,
-            status=status,
+            status=None if has_transcript else status,
             search=search,
             tag_ids=tag_ids,
             min_rating=min_rating,
@@ -881,6 +980,9 @@ async def get_all_media_details(
             date_field=date_field,
             date_year=date_year,
             date_month=date_month,
+            media_types=media_types,
+            has_transcript=has_transcript,
+            include_owned=has_transcript,
         )
         stmt = select(MediaDetails).options(
             joinedload(MediaDetails.transcript_task_record),
@@ -955,9 +1057,11 @@ async def get_all_media_details(
 
         record_ids = [r.id for r in records]
 
-        # For DELETED status, fetch transcript block counts in a single query
+        # For DELETED status and the Transcripts view, fetch transcript block counts in
+        # a single query
+        with_transcript_counts = has_transcript or status == 'DELETED'
         transcript_counts = {}
-        if status == 'DELETED' and records:
+        if with_transcript_counts and records:
             count_stmt = (
                 sa_select(
                     TranscriptBlock.media_details_id,
@@ -976,7 +1080,7 @@ async def get_all_media_details(
                 record,
                 playback_data=playback_from_join.get(record.id, {}),
                 transcript_count=transcript_counts.get(record.id, 0)
-                if status == 'DELETED'
+                if with_transcript_counts
                 else None,
                 rating=ratings_map.get(record.id),
                 tags=tags_map.get(record.id, []),
@@ -1010,6 +1114,7 @@ async def hard_delete_media_details_by_id(id: int) -> int:
         if not md:
             return 0
 
+        delete_thumbnail(md.thumbnail_path)
         await session.delete(md)
         await session.commit()
         logger.info(f'Hard deleted MediaDetails with id: {id}')
@@ -1142,6 +1247,112 @@ def sync_mark_download_cancelled(url: str, media_type_value: str | None) -> int:
     """Sync version of mark_download_cancelled (runs from lane-thread hooks)."""
     with db.sync_session() as session:
         return session.execute(_cancel_media_stmt(url, media_type_value)).rowcount
+
+
+def sync_get_in_flight_transcript_only_urls() -> list[str]:
+    """URLs of transcript-only items whose staged files may still be needed."""
+    stmt = sa_select(MediaDetails.url).where(
+        and_(
+            MediaDetails.media_type == MediaType.TRANSCRIPT,
+            MediaDetails.status.in_(_CANCELLABLE_MEDIA_STATUSES),
+        )
+    )
+    with db.sync_session() as session:
+        return list(session.execute(stmt).scalars())
+
+
+def sync_get_thumbnail_paths_under(directory: str) -> set[str]:
+    """Every thumbnail_path stored under `directory`, for the orphan sweep."""
+    stmt = sa_select(MediaDetails.thumbnail_path).where(
+        MediaDetails.thumbnail_path.startswith(directory.rstrip('/') + '/', autoescape=True)
+    )
+    with db.sync_session() as session:
+        return set(session.execute(stmt).scalars())
+
+
+def _finish_transcript_only_stmts(
+    url: str, status: TaskStatus, thumbnail_path: str | None = None
+) -> tuple:
+    """Record how a transcript-only item's transcript ended, its staged files already gone.
+
+    file_path always clears, since whatever it pointed at was staged and has been deleted.
+    `thumbnail_path` is the kept thumbnail of a COMPLETE one; it only ever sets the column,
+    so a late hook without one can't clear a thumbnail an earlier run kept.
+    The status moves only off an in-flight one, the same guard a cancel uses, so a late
+    hook can't knock a COMPLETE row back.
+    """
+    row = and_(MediaDetails.url == url, MediaDetails.media_type == MediaType.TRANSCRIPT)
+    values: dict = {'status': status}
+    if status == TaskStatus.COMPLETE:
+        values['downloaded_at'] = utc_now()
+    cleared: dict = {'file_path': None, 'file_size_bytes': None}
+    if thumbnail_path:
+        cleared['thumbnail_path'] = thumbnail_path
+    return (
+        sa_update(MediaDetails).where(row).values(**cleared),
+        sa_update(MediaDetails)
+        .where(and_(row, MediaDetails.status.in_(_CANCELLABLE_MEDIA_STATUSES)))
+        .values(**values),
+    )
+
+
+async def finish_transcript_only(url: str, status: TaskStatus) -> None:
+    """See _finish_transcript_only_stmts. For the cancel endpoints."""
+    async with db.get_async_session() as session:
+        for stmt in _finish_transcript_only_stmts(url, status):
+            await session.execute(stmt)
+        await session.commit()
+
+
+def sync_finish_transcript_only(
+    url: str, status: TaskStatus, thumbnail_path: str | None = None
+) -> None:
+    """See _finish_transcript_only_stmts. For TranscriptHooks."""
+    with db.sync_session() as session:
+        for stmt in _finish_transcript_only_stmts(url, status, thumbnail_path):
+            session.execute(stmt)
+
+
+async def has_full_transcript(url: str, user_id: int) -> bool:
+    """Whether the user can already search `url` through a full media row's transcript."""
+    stmt = sa_select(
+        exists().where(
+            and_(
+                MediaDetails.url == url,
+                MediaDetails.media_type != MediaType.TRANSCRIPT,
+                _accessible_to(user_id, MediaDetails),
+                exists().where(TranscriptBlock.media_details_id == MediaDetails.id),
+            )
+        )
+    )
+    async with db.get_async_session() as session:
+        return bool((await session.execute(stmt)).scalar())
+
+
+def sync_get_urls_with_full_transcript(urls: list[str], user_id: int | None) -> set[str]:
+    """Which of `urls` the user can already search through a full media row's transcript.
+
+    The subscription filter's batched form of _not_superseded_condition: a transcript-only
+    job for one of these is dropped. user_id None (an unowned subscription) counts every
+    full row as visible.
+    """
+    found: set[str] = set()
+    unique_urls = list(dict.fromkeys(urls))
+
+    with db.sync_session() as session:
+        for start in range(0, len(unique_urls), _URL_BATCH_SIZE):
+            chunk = unique_urls[start : start + _URL_BATCH_SIZE]
+            conditions = [
+                MediaDetails.url.in_(chunk),
+                MediaDetails.media_type != MediaType.TRANSCRIPT,
+                exists().where(TranscriptBlock.media_details_id == MediaDetails.id),
+            ]
+            if user_id is not None:
+                conditions.append(_accessible_to(user_id, MediaDetails))
+            stmt = sa_select(MediaDetails.url).where(and_(*conditions)).distinct()
+            found.update(session.execute(stmt).scalars())
+
+    return found
 
 
 def sync_get_media_details_by_urls(

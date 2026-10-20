@@ -20,7 +20,8 @@
 Subscribe to channels and playlists and YT-Hoarder keeps the library current on a schedule.
 Downloads can be transcribed on-device with Whisper, which enables semantic search across the
 collection, navigation to any spoken moment, clip extraction, playlist curation, and sharing with
-other users on the instance. It runs entirely on your own hardware under Docker, with no external
+other users on the instance. A channel can also be indexed *transcript-only*: searchable by what
+is said in it, without keeping any of its media. It runs entirely on your own hardware under Docker, with no external
 accounts and no cloud dependency.
 
 <div align="center">
@@ -34,7 +35,8 @@ accounts and no cloud dependency.
 | Feature | Description |
 |---|---|
 | **Automatic subscriptions** | Subscribe to channels and playlists; new uploads download on a schedule, filtered by title keyword, upload date, or duration, as audio-only or full video. |
-| **Transcript search** | Items are transcribed locally with faster-whisper, embedded with onnxruntime, and stored in pgvector. Searches return the exact spoken passages and link to their timestamps, narrowed to whatever the library is currently filtered to — the search box, the open group folder, tag chips and minimum rating. |
+| **Transcript search** | Items are transcribed from their YouTube captions, or locally with faster-whisper, embedded with onnxruntime, and stored in pgvector. Searches return the exact spoken passages and link to their timestamps, narrowed to whatever the library is currently filtered to — the search box, the open group folder, tag chips and minimum rating. While watching, the transcript can sit beside the player, following along and searchable on its own. |
+| **Transcript-only indexing** | Download or subscribe to a video, playlist or channel as **Transcript Only**: only its transcript is kept, so it is searchable (in the app and over MCP) without taking up the library. See [Transcripts](#transcripts). |
 | **Mobile-optimized interface** | The web UI is built for phones and tablets as well as desktop: card layouts in place of tables, touch drag-and-drop, mobile chart forms, and native video fullscreen and picture-in-picture on iOS. |
 | **Waveform clipping** | Scrub an interactive waveform, drag region handles to frame-accurate start and end points, zoom for precision, and export a clip. |
 | **Real-time progress** | Downloads and transcriptions stream progress over Server-Sent Events, reporting phase (video vs. audio), and percent complete.
@@ -189,13 +191,13 @@ To configure the Compose files by hand instead of running `setup.sh`, see
 3. **Monitor the Tasks tab** as downloads and optional transcription run. A pasted URL appears
    immediately as **Resolving** while its details are fetched.
 4. **Open a download** in the built-in player. Playback position is saved per user, and transcribed
-   items can be searched and navigated by transcript.
+   items show their transcript beside the player, to follow along, search, and jump to any line.
 5. **Clip, collect, and share:** extract a clip on the waveform, add media to a playlist, and share
    any of it with other users on the instance.
 
 | Tab | Purpose |
 |-----|---------|
-| **Downloads** | Browse the library, play media, search transcripts, create clips, rate and tag; switch to grid view and group into folders by channel, tag, or date |
+| **Downloads** | Browse the library, play media, search transcripts, create clips, rate and tag; switch to grid view and group into folders by channel, tag, or date. The **Transcripts** view lists everything with a transcript, including transcript-only items |
 | **Subscriptions** | Add and edit channel and playlist subscriptions and their filters |
 | **Clips** | Manage clips created from your media |
 | **Playlists** | Create and order playlists, play them through, and create clips from any track |
@@ -209,6 +211,7 @@ The toggles beside the URL box on the **Downloads** tab. They apply to that subm
 
 | Option | What it does |
 |---|---|
+| **Transcript Only** | Keeps only the transcript, for searching: from YouTube's captions, or if a video has none, from Whisper run on a temporary audio download that is deleted afterwards. Nothing goes in your library or counts toward your storage limit. Hides the options below that it makes irrelevant. See [Transcripts](#transcripts). |
 | **Audio Only** | Downloads audio instead of video, saved as m4a to the audio path. Also switches the quality selector to bitrate tiers. |
 | **Playlist** | Treats the URL as a playlist and expands it into one download per video. Off, a `watch?v=…&list=…` URL downloads only the single video it points at. |
 | **Overwrite** | Re-downloads a URL already in your library, replacing the existing copy and its transcript. Off, an already-downloaded URL is skipped. |
@@ -219,8 +222,10 @@ The toggles beside the URL box on the **Downloads** tab. They apply to that subm
 ### Subscription options
 
 Set per subscription when you add it, and editable afterwards. Subscriptions carry the same
-**Audio Only**, **Overwrite**, **Transcript**, and **Quality** options as above, applied to every
-video they download, plus filters deciding *which* videos qualify:
+**Transcript Only**, **Audio Only**, **Overwrite**, **Transcript**, and **Quality** options as above,
+applied to every video they download, plus filters deciding *which* videos qualify. Transcript Only
+is fixed once the subscription exists — to switch a channel between indexing and downloading, add a
+second subscription.
 
 | Option | What it does |
 |---|---|
@@ -232,6 +237,45 @@ video they download, plus filters deciding *which* videos qualify:
 Filtered-out videos are recorded as skipped rather than re-examined every cycle. Loosening a filter
 later re-evaluates them, so widening a duration range or clearing a title filter picks up the videos
 it previously passed over. How often subscriptions are checked is set in **Settings**, not here.
+
+### Transcripts
+
+**Transcript-only items** are indexed for search but never kept as media. They don't appear in the
+Library or in playlists, only in transcript search, MCP, and the **Transcripts** view. Each one
+uses YouTube's English captions when it has them; a video without captions is downloaded as the
+smallest audio stream, transcribed with Whisper, and the audio deleted. Whisper is CPU-heavy and
+runs one job at a time, so a large caption-less backlog takes a while; caption fetches are paced by
+the same **Download Sleep** setting as downloads, since both talk to YouTube.
+
+**The Transcripts view** (the scope picker at the top of the Downloads tab) lists everything you can
+search: transcript-only items, library media with a transcript (*In library*), and deleted media
+whose transcript you kept (*Deleted*). Like the Library it has a **Grid** view, and it groups into
+folders by channel, tag or date; an open folder narrows transcript search to it. With **Resume** on,
+opening a row picks up where you left off.
+
+Transcript-only items keep a small thumbnail (YouTube's 480px image, about 20 KB) so the grid has
+pictures. A thumbnail lasts as long as the media file or the transcript does: deleting library media
+but keeping its transcript keeps its picture, and deleting that transcript later removes it.
+
+**Watching with the transcript.** Every media page has a **Transcript** button that shows the
+transcript beside the player (below it on a phone): the playing line is highlighted, a click jumps
+there, and its search box narrows it to the lines containing every word you type. Media without a
+transcript shows **Generate transcript** instead, for its owner or an admin. Audio keeps playing in
+the bottom bar; its **Transcript** button opens the same page, following the bar.
+
+Items with no file to play — transcript-only, or deleted with the transcript kept — play through
+YouTube's privacy-enhanced (`youtube-nocookie.com`) embed, which sets no cookies until you press play
+and keeps these views out of your YouTube recommendations. Your position is still saved, so they
+resume like everything else.
+
+A few rules follow from all this:
+
+- **Downloading a video in full replaces its transcript-only entry** once the full copy has a
+  transcript, so search never shows the same passage twice. Asking for transcript-only on something
+  whose transcript you already have is refused.
+- **Deleting a transcript-only item deletes its transcript.** Deleting library media still offers
+  to keep its transcript, which then shows in the Transcripts view as *Deleted*, visible to you only.
+- **Captions and Whisper are English-only**, as for the **Transcript** option.
 
 ## Configuration
 

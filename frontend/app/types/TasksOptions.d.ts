@@ -32,7 +32,7 @@ export type TaskRecord = {
   title: string | null
   channel: string | null
   release_timestamp: string | null
-  media_type: 'AUDIO' | 'VIDEO' | null
+  media_type: 'AUDIO' | 'VIDEO' | 'TRANSCRIPT' | null
   upstream_task_ids: string[] | null
   download_job_url: string | null
   has_downstream_tasks?: boolean

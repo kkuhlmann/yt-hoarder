@@ -28,6 +28,10 @@ router = APIRouter()
 # the frontend keys the retry dialog's overwrite pre-check off it (see TasksTable.tsx).
 DELETED_RETRY_MESSAGE = 'Video was previously deleted — retry with overwrite to re-download.'
 
+ALREADY_TRANSCRIBED_MESSAGE = (
+    "You already have this video's transcript: it is in your Transcripts view and searchable."
+)
+
 CANCELLED_RETRY_MESSAGE = (
     'A cancelled download for this video still holds its place in the queue. '
     'Retry that task from the Tasks tab, or delete it and submit again.'
@@ -74,7 +78,27 @@ def _canonical_job_url(dl_job_dict: dict) -> str:
     return normalize_video_url(url)
 
 
-async def _enforce_storage_quota(user_id: int) -> None:
+async def _refuse_superseded_transcript_only(
+    dl_job: DownloadRequest, url: str, user_id: int
+) -> None:
+    """409 a transcript-only request for a video whose full media the user already searches.
+
+    Indexing it again would only duplicate every search hit. A playlist URL is checked per
+    video instead, by filter_completed_downloads.
+    """
+    if dl_job.media_type != MediaType.TRANSCRIPT or dl_job.download_playlist:
+        return
+    if await md_repo.has_full_transcript(url, user_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={'message': ALREADY_TRANSCRIBED_MESSAGE},
+        )
+
+
+async def _enforce_storage_quota(user_id: int, media_type: MediaType | None) -> None:
+    # A transcript-only item keeps no media, so the storage limit doesn't apply to it.
+    if media_type == MediaType.TRANSCRIPT:
+        return
     user = await user_repo.get_user_by_id(user_id)
     if user is None or user.storage_limit_bytes is None:
         return
@@ -92,7 +116,7 @@ async def _enforce_storage_quota(user_id: int) -> None:
 
 @router.post('/', status_code=status.HTTP_201_CREATED)
 async def download_media(dl_job: DownloadRequest, user_id: int = Depends(get_required_user_id)):
-    await _enforce_storage_quota(user_id)
+    await _enforce_storage_quota(user_id, dl_job.media_type)
 
     dl_job_dto = DownloadJobDTO.from_orm(dl_job.model_dump())
     dl_job_dto.user_id = user_id
@@ -102,6 +126,8 @@ async def download_media(dl_job: DownloadRequest, user_id: int = Depends(get_req
 
     url = dl_job_dict.get('url')
     media_type = dl_job_dict.get('media_type')
+
+    await _refuse_superseded_transcript_only(dl_job, url, user_id)
 
     existing_task = await tr_repo.find_one(
         {

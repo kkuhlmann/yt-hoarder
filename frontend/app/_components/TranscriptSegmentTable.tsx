@@ -8,7 +8,7 @@ import { useMediaPlayer } from "@/app/context/MediaPlayerContext"
 import { useDelayedFlag } from "@/app/_hooks/useDelayedFlag"
 import { TranscriptSegment } from "../types/TranscriptSegments"
 import { motion } from "framer-motion"
-import { ArrowTopRightOnSquareIcon } from "@heroicons/react/20/solid"
+import { DocumentTextIcon } from "@heroicons/react/20/solid"
 import { formatTime } from "@/app/utils"
 
 type TranscriptSegmentTableProps = {
@@ -17,6 +17,11 @@ type TranscriptSegmentTableProps = {
   loading: boolean
   setRowSelect: Dispatch<SetStateAction<any>>
   setDisplayVideo: (visible: boolean) => void
+  /**
+   * Opens the page for a hit with no file to play (transcript-only, or deleted with its
+   * transcript kept), which plays it through YouTube beside the transcript.
+   */
+  onOpenTranscript: (mediaId: number, seconds: number) => void
   searchQuery?: string
 }
 
@@ -69,6 +74,7 @@ export function TranscriptSegmentTable({
   loading,
   setRowSelect,
   setDisplayVideo,
+  onOpenTranscript,
   searchQuery = "",
 }: TranscriptSegmentTableProps) {
   // Spinner only after 500ms, so a fast refetch doesn't flash one.
@@ -76,13 +82,8 @@ export function TranscriptSegmentTable({
   const { audioPlayer, openAudioPlayer, closeAudioPlayer } = useMediaPlayer()
 
   const handleRowClick = (row: TranscriptSegment) => {
-    if (row.media_details.status === "DELETED") {
-      if (row.media_details.url) {
-        const url = new URL(row.media_details.url)
-        const seconds = Math.floor(row.start_time)
-        url.searchParams.set("t", String(seconds))
-        window.open(url.toString(), "_blank", "noopener,noreferrer")
-      }
+    if (row.media_details.media_type === "TRANSCRIPT" || row.media_details.status === "DELETED") {
+      onOpenTranscript(row.media_details_id, row.start_time)
       return
     }
 
@@ -120,6 +121,7 @@ export function TranscriptSegmentTable({
 
   const TableRow = (row: TranscriptSegment, index: number) => {
     const isDeleted = row.media_details.status === "DELETED"
+    const isTranscriptOnly = row.media_details.media_type === "TRANSCRIPT"
     return (
       <motion.tr
         key={row.transcript_block_id}
@@ -179,8 +181,11 @@ export function TranscriptSegmentTable({
             className="text-xs md:text-sm text-text-secondary truncate block"
             title={row.media_details.title}
           >
-            {isDeleted && (
-              <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5 inline mr-1 text-text-muted" title="Opens YouTube" />
+            {(isDeleted || isTranscriptOnly) && (
+              <DocumentTextIcon
+                className="h-3.5 w-3.5 inline mr-1 text-text-muted"
+                title={isDeleted ? "Deleted: plays from the source" : "Transcript only: plays from the source"}
+              />
             )}
             {row.media_details.title}
           </span>
@@ -193,9 +198,6 @@ export function TranscriptSegmentTable({
             isDeleted ? "text-status-warning" : "text-matrix"
           )}>
             {formatTime(row.start_time)}
-            {isDeleted && (
-              <ArrowTopRightOnSquareIcon className="h-3 w-3 inline ml-1" title="Opens YouTube at this timestamp" />
-            )}
           </span>
         </td>
       </motion.tr>

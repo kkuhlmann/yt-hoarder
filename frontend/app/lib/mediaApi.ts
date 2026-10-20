@@ -18,6 +18,7 @@ export const mediaApi = {
   hardDelete: (id: number) => `/media-details/${id}/hard`,
   playback: (id: number) => `/media-details/${id}/playback`,
   transcripts: (id: number) => `/media-details/${id}/transcripts`,
+  transcript: (id: number) => `/media-details/${id}/transcript`,
   rating: (id: number) => `/media-details/${id}/rating`,
   tags: (id: number) => `/media-details/${id}/tags`,
   createTranscript: (id: number) => `/media-details/transcripts/${id}/create`,

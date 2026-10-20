@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import axios from "axios"
 import { apiUrl } from "@/app/lib/api"
 import { mediaApi } from "@/app/lib/mediaApi"
+import { TRANSCRIPTS_SCOPE, scopeParams } from "@/app/lib/mediaScope"
 import { useFetchEffect } from "@/app/_hooks/useFetchEffect"
 import { useAdmin } from "@/app/context/AdminContext"
 import type { GroupDim, GroupLeafFilter, MediaGroup } from "@/app/types/DownloadsOptions"
@@ -17,6 +18,16 @@ export const GROUP_DIM_LABELS: Record<GroupDim, string> = {
   released: "Upload date",
 }
 
+/**
+ * GROUP_DIM_LABELS as a scope shows them. In the Transcripts view `downloaded_at` is
+ * when an item was added, since a transcript-only item never downloaded any media.
+ */
+export function groupDimLabels(scope: string): Record<GroupDim, string> {
+  return scope === TRANSCRIPTS_SCOPE
+    ? { ...GROUP_DIM_LABELS, downloaded: "Added date" }
+    : GROUP_DIM_LABELS
+}
+
 type Segment = { key: string; label: string }
 
 // What the leaf (media list) needs: an optional tag-id override plus list filters.
@@ -24,6 +35,7 @@ type GroupLeaf = { tagIds?: number[]; filter: GroupLeafFilter }
 
 type Args = {
   enabled: boolean
+  /** The list's scope: a status, or TRANSCRIPTS_SCOPE. */
   status: string
   search: string
   tagIds: number[]
@@ -117,10 +129,10 @@ export function useDownloadGrouping({ enabled, status, search, tagIds, minRating
 
   const breadcrumb = useMemo(
     () => ({
-      dimLabel: groupDim ? GROUP_DIM_LABELS[groupDim] : "",
+      dimLabel: groupDim ? groupDimLabels(status)[groupDim] : "",
       segments: groupPath,
     }),
-    [groupDim, groupPath]
+    [groupDim, groupPath, status]
   )
 
   // Fetch folders whenever we're showing them (and the filter context changes).
@@ -131,7 +143,7 @@ export function useDownloadGrouping({ enabled, status, search, tagIds, minRating
       if (!groupDim) return
       const params: Record<string, any> = {
         group_by: groupDim,
-        status,
+        ...scopeParams(status),
         page: folderPage,
         page_size: FOLDER_PAGE_SIZE,
         ...adminParam,

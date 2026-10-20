@@ -51,6 +51,15 @@ def _extract_youtube_video_id(parsed, hostname: str) -> str | None:
     return None
 
 
+def youtube_video_id(url: str) -> str | None:
+    """The video id of a YouTube watch/shorts/embed/live/youtu.be URL, else None."""
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or '').lower().replace('www.', '').replace('m.', '')
+    if hostname not in ('youtube.com', 'youtu.be', 'music.youtube.com'):
+        return None
+    return _extract_youtube_video_id(parsed, hostname)
+
+
 def normalize_video_url(url: str) -> str:
     """Normalize a video URL. YouTube URLs are canonicalized; others pass through unchanged."""
     parsed = urlparse(url)

@@ -11,6 +11,8 @@ import {
   PlayCircleIcon,
   UserPlusIcon,
   TagIcon,
+  DocumentTextIcon,
+  ArrowTopRightOnSquareIcon,
 } from "@heroicons/react/20/solid"
 import { ArrowDownTrayIcon } from "@heroicons/react/24/outline"
 import toast from "react-hot-toast"
@@ -20,6 +22,7 @@ import type { ActionDescriptor } from "@/app/_components/data/ActionList"
 import type { MediaActions } from "@/app/_hooks/useMediaActions"
 import type { MediaDialogs } from "./MediaActionDialogs"
 import type { Download } from "@/app/types/DownloadsOptions"
+import { TRANSCRIPTS_SCOPE } from "@/app/lib/mediaScope"
 
 type CurrentUser = { id?: number; is_admin?: boolean } | null | undefined
 
@@ -200,10 +203,90 @@ export type BuildMediaActionsArgs = {
   onClip?: (row: Download) => void
   /** SKIPPED-only: fills the download form from this row. */
   onPopulateSkipped?: (row: Download) => void
+  /** Transcripts view: opens the transcript viewer. Omit to hide the action. */
+  onViewTranscript?: (row: Download) => void
   /** True in the grid/card overlay, where text sits tighter. */
   compact?: boolean
   /** True when the app is showing its downloaded library. */
   offlineMode?: boolean
+}
+
+const tagsAction = (dialogs: MediaDialogs): ActionDescriptor<Download> => ({
+  key: "tags",
+  title: "Edit tags",
+  icon: TagIcon,
+  onClick: (row) => dialogs.open("tags", row),
+  buttonClassName: "hover:bg-matrix/20",
+  iconClassName: "text-text-muted hover:text-matrix",
+})
+
+const shareAction = (user: CurrentUser, dialogs: MediaDialogs): ActionDescriptor<Download> => ({
+  key: "share",
+  title: "Share",
+  icon: UserPlusIcon,
+  onClick: (row) => {
+    if (row.owner_id !== user?.id && !user?.is_admin) {
+      toast.error("Only the owner can manage sharing")
+      return
+    }
+    dialogs.open("share", row)
+  },
+  buttonClassName: "hover:bg-matrix/20",
+  iconClassName: "text-text-muted hover:text-matrix",
+})
+
+/**
+ * The Transcripts view mixes transcript-only items, library media and deleted media
+ * whose transcript was kept, under one shared column of actions — so each action
+ * decides per row rather than per scope. Playback, clips, playlists and offline stay
+ * in the Library, where every row has a file.
+ */
+function transcriptsViewActions(
+  user: CurrentUser,
+  dialogs: MediaDialogs,
+  onViewTranscript: ((row: Download) => void) | undefined
+): ActionDescriptor<Download>[] {
+  // A soft delete removed every share and tag, so neither applies to a deleted row.
+  const deleted = (row: Download) => row.status === "DELETED"
+  const viewTranscript: ActionDescriptor<Download>[] = onViewTranscript
+    ? [
+        {
+          key: "viewTranscript",
+          title: "View transcript",
+          icon: DocumentTextIcon,
+          onClick: onViewTranscript,
+          buttonClassName: "hover:bg-matrix/20",
+          iconClassName: "text-text-muted hover:text-matrix",
+        },
+      ]
+    : []
+  return [
+    ...viewTranscript,
+    {
+      key: "source",
+      title: "Open source",
+      icon: ArrowTopRightOnSquareIcon,
+      onClick: (row) => {
+        if (row.url) window.open(row.url, "_blank", "noopener,noreferrer")
+      },
+      buttonClassName: "hover:bg-matrix/20",
+      iconClassName: "text-text-muted hover:text-matrix",
+    },
+    { ...tagsAction(dialogs), disabled: deleted, disabledTitle: "Deleted media has no tags" },
+    {
+      ...shareAction(user, dialogs),
+      disabled: deleted,
+      disabledTitle: "Deleted media can't be shared",
+    },
+    {
+      key: "delete",
+      title: (row) => (deleted(row) ? "Delete transcript" : "Delete"),
+      icon: TrashIcon,
+      onClick: (row) => dialogs.open(deleted(row) ? "deleteTranscripts" : "delete", row),
+      buttonClassName: "hover:bg-status-error/20",
+      iconClassName: "text-text-muted hover:text-status-error",
+    },
+  ]
 }
 
 const OFFLINE_ACTION: ActionDescriptor<Download> = {
@@ -230,10 +313,15 @@ export function buildMediaActions({
   dialogs,
   onClip,
   onPopulateSkipped,
+  onViewTranscript,
   compact = false,
   offlineMode = false,
 }: BuildMediaActionsArgs): ActionDescriptor<Download>[] {
   if (offlineMode) return [OFFLINE_ACTION]
+
+  if (status === TRANSCRIPTS_SCOPE) {
+    return transcriptsViewActions(user, dialogs, onViewTranscript)
+  }
 
   if (status === "SKIPPED") {
     return [
@@ -304,14 +392,7 @@ export function buildMediaActions({
         />
       ),
     },
-    {
-      key: "tags",
-      title: "Edit tags",
-      icon: TagIcon,
-      onClick: (row) => dialogs.open("tags", row),
-      buttonClassName: "hover:bg-matrix/20",
-      iconClassName: "text-text-muted hover:text-matrix",
-    },
+    tagsAction(dialogs),
     {
       key: "playlist",
       title: "Add to playlist",
@@ -320,20 +401,7 @@ export function buildMediaActions({
       buttonClassName: "hover:bg-matrix/20",
       iconClassName: "text-text-muted hover:text-matrix",
     },
-    {
-      key: "share",
-      title: "Share",
-      icon: UserPlusIcon,
-      onClick: (row) => {
-        if (row.owner_id !== user?.id && !user?.is_admin) {
-          toast.error("Only the owner can manage sharing")
-          return
-        }
-        dialogs.open("share", row)
-      },
-      buttonClassName: "hover:bg-matrix/20",
-      iconClassName: "text-text-muted hover:text-matrix",
-    },
+    shareAction(user, dialogs),
     OFFLINE_ACTION,
     {
       key: "clip",

@@ -6,10 +6,18 @@ from logger import logger
 from models import MediaType, TaskRecord, TaskStatus, TaskType
 from orchestrator import JobContext, retry_transient_db
 from progress_publisher import publish_status_change
+from repositories import media_details as md_repo
 from repositories import settings as settings_repo
 from repositories import task_records as tr_repo
 from repositories.task_records import DIRECT_DOWNLOAD_PRIORITY
-from services.cleanup import cleanup_incomplete_downloads, cleanup_old_temp_files
+from services.cleanup import (
+    cleanup_incomplete_downloads,
+    cleanup_old_temp_files,
+    cleanup_orphaned_thumbnails,
+    cleanup_orphaned_transcript_staging,
+)
+from ytdlp.files import kept_thumbnails_dir
+from ytdlp.urls import get_url_hash
 
 
 def cleanup_temp_files_impl() -> dict:
@@ -18,6 +26,8 @@ def cleanup_temp_files_impl() -> dict:
     Removes:
     - Transcript chunk directories and audio transcript files older than configured hours
     - Incomplete download files (*.part, *.ytdl) older than 1 hour
+    - Transcript-only staging files older than configured hours that no item still needs
+    - Kept thumbnails older than configured hours that no media row points at
     """
     logger.info('Running periodic cleanup of temporary files...')
     app_settings = settings_repo.sync_get_settings()
@@ -25,16 +35,23 @@ def cleanup_temp_files_impl() -> dict:
 
     temp_deleted = cleanup_old_temp_files(age_hours)
     partial_deleted = cleanup_incomplete_downloads(age_hours=1)
+    in_flight = {get_url_hash(url) for url in md_repo.sync_get_in_flight_transcript_only_urls()}
+    staging_deleted = cleanup_orphaned_transcript_staging(age_hours, in_flight)
+    referenced = md_repo.sync_get_thumbnail_paths_under(kept_thumbnails_dir())
+    thumbnails_deleted = cleanup_orphaned_thumbnails(age_hours, referenced)
 
-    total_deleted = temp_deleted + partial_deleted
+    total_deleted = temp_deleted + partial_deleted + staging_deleted + thumbnails_deleted
     logger.info(
         f'Cleanup task completed: {total_deleted} items removed '
-        f'({temp_deleted} temp files, {partial_deleted} incomplete downloads)'
+        f'({temp_deleted} temp files, {partial_deleted} incomplete downloads, '
+        f'{staging_deleted} transcript staging files, {thumbnails_deleted} kept thumbnails)'
     )
     return {
         'deleted_count': total_deleted,
         'temp_files_deleted': temp_deleted,
         'incomplete_downloads_deleted': partial_deleted,
+        'transcript_staging_deleted': staging_deleted,
+        'thumbnails_deleted': thumbnails_deleted,
         'age_hours': age_hours,
     }
 

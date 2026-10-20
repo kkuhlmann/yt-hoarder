@@ -9,7 +9,7 @@ from yt_dlp.postprocessor import PostProcessor
 
 from config import settings
 from logger import logger
-from models import DownloadJob
+from models import DownloadJob, MediaType
 from repositories import media_details as md_repo
 from repositories import settings as settings_repo
 from schemas import DownloadJobDTO
@@ -285,6 +285,81 @@ def _throttling_options(app_settings) -> dict:
     return options
 
 
+def _media_format_options(
+    download_job: DownloadJob | DownloadJobDTO,
+    fmt: str,
+    quality: str,
+    audio_abr_cap: int | None,
+    use_fallback_format: bool,
+) -> tuple[dict, int | None]:
+    """Format selection for an AUDIO/VIDEO download, plus the audio re-encode bitrate.
+
+    use_fallback_format is for "format not available" retries.
+    """
+    if use_fallback_format and not download_job.audio_only:
+        # Video fallback: use generic format + FFmpeg conversion for iOS compatibility
+        logger.info('Using fallback format with FFmpeg video conversion for iOS compatibility')
+        return {
+            'format': get_fallback_format(audio_only=False),
+            'postprocessors': [{'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'}],
+            # Force H.264 video + AAC audio for iOS compatibility
+            'postprocessor_args': {
+                'FFmpegVideoConvertor': [
+                    '-c:v',
+                    'libx264',
+                    '-preset',
+                    'medium',
+                    '-crf',
+                    '23',
+                    '-c:a',
+                    'aac',
+                ]
+            },
+        }, None
+    if use_fallback_format:
+        # Audio fallback: FFmpegExtractAudio (added by the caller) handles conversion to m4a
+        logger.info('Using fallback format for audio download')
+        return {'format': get_fallback_format(audio_only=True)}, None
+    if download_job.audio_only:
+        # Audio-only: pick the source + re-encode target for the chosen tier. Higher
+        # tiers copy a native AAC stream; lower tiers re-encode down (applied by the
+        # caller's postprocessor). audio_abr_cap=None -> Best.
+        audio_format, audio_pq = build_audio_selection(audio_abr_cap)
+        logger.info(
+            f'Using audio-only format (abr_cap={audio_abr_cap}, pq={audio_pq}): {audio_format}'
+        )
+        return {'format': audio_format}, audio_pq
+    return {'format': get_format(fmt, quality)}, None
+
+
+# The subtitle options shared by a transcript-enabled download and a transcript-only captions
+# pass. VTT covers a track that has no json3; ytdlp.subtitles parses both.
+_CAPTION_OPTIONS = {
+    'writesubtitles': True,
+    'writeautomaticsub': True,
+    'subtitleslangs': ['en'],
+    'subtitlesformat': 'json3/vtt',
+}
+
+
+def _transcript_only_options(*, captions_only: bool) -> dict:
+    """Options for a transcript-only item: its captions alone, or audio for Whisper.
+
+    Whisper resamples to 16 kHz mono itself, so the smallest stream is all the fallback
+    needs, taken as-is. Nothing either pass writes is kept once the transcript exists.
+    """
+    if not captions_only:
+        return {'format': 'worstaudio/worst'}
+    return {
+        'format': 'worstaudio/worst',
+        'skip_download': True,
+        # Captions don't depend on media formats, so a video whose formats come back empty
+        # (PO-token or SABR trouble) can still be indexed from them.
+        'ignore_no_formats_error': True,
+        **_CAPTION_OPTIONS,
+    }
+
+
 def create_ydl_options(
     download_job: DownloadJob | DownloadJobDTO,
     fmt: str = 'mp4',
@@ -296,6 +371,7 @@ def create_ydl_options(
     use_fallback_format: bool = False,
     cookie_file: str | None = None,
     with_subtitles: bool = True,
+    captions_only: bool = False,
 ) -> dict:
     """
     Create youtube-dl options dictionary based on the given DownloadJob or DTO.
@@ -314,6 +390,8 @@ def create_ydl_options(
             ytdlp.cookies.cookie_session, which owns the mode decision.
         with_subtitles: False leaves the captions out even when the job wants a
             transcript, for the re-run after a caption fetch failed.
+        captions_only: For a TRANSCRIPT job, fetch only its captions (no media). Otherwise a
+            TRANSCRIPT job gets its Whisper-fallback audio download.
 
     Returns:
         dict: Options dictionary for youtube-dl.
@@ -333,46 +411,16 @@ def create_ydl_options(
         'postprocessors': [],
     }
 
-    # Set format - use fallback if requested (for "format not available" retries)
+    transcript_only = download_job.media_type == MediaType.TRANSCRIPT
+
     audio_pq = None  # audio-only re-encode target bitrate (set by build_audio_selection)
-    if use_fallback_format and not download_job.audio_only:
-        # Video fallback: use generic format + FFmpeg conversion for iOS compatibility
-        download_options['format'] = get_fallback_format(audio_only=False)
-        download_options['postprocessors'].append(
-            {
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
-            }
-        )
-        # Force H.264 video + AAC audio for iOS compatibility
-        download_options['postprocessor_args'] = {
-            'FFmpegVideoConvertor': [
-                '-c:v',
-                'libx264',
-                '-preset',
-                'medium',
-                '-crf',
-                '23',
-                '-c:a',
-                'aac',
-            ]
-        }
-        logger.info('Using fallback format with FFmpeg video conversion for iOS compatibility')
-    elif use_fallback_format and download_job.audio_only:
-        # Audio fallback: FFmpegExtractAudio (added below) handles conversion to m4a
-        download_options['format'] = get_fallback_format(audio_only=True)
-        logger.info('Using fallback format for audio download')
-    elif download_job.audio_only:
-        # Audio-only: pick the source + re-encode target for the chosen tier. Higher
-        # tiers copy a native AAC stream; lower tiers re-encode down (applied by the
-        # postprocessor below). audio_abr_cap=None -> Best.
-        download_options['format'], audio_pq = build_audio_selection(audio_abr_cap)
-        logger.info(
-            f'Using audio-only format (abr_cap={audio_abr_cap}, pq={audio_pq}): '
-            f'{download_options["format"]}'
-        )
+    if transcript_only:
+        download_options.update(_transcript_only_options(captions_only=captions_only))
     else:
-        download_options['format'] = get_format(fmt, quality)
+        format_options, audio_pq = _media_format_options(
+            download_job, fmt, quality, audio_abr_cap, use_fallback_format
+        )
+        download_options.update(format_options)
 
     # Randomizing the fingerprint is cover for an anonymous request and a liability for
     # an authenticated one: yt-dlp keeps the extractor's per-client User-Agent under
@@ -385,15 +433,11 @@ def create_ydl_options(
         logger.debug(f'create_ydl_options using impersonation target: {impersonate_target}')
         download_options['impersonate'] = impersonate_target
 
-    if download_job.generate_transcript and with_subtitles:
+    if download_job.generate_transcript and with_subtitles and not transcript_only:
         # Captions are best-effort. A video with no track goes on without one; a listed
         # track whose fetch fails raises instead, which _download_with_fallback answers by
         # re-running without them. Either way the transcript falls back to Whisper.
-        download_options['writesubtitles'] = True
-        download_options['writeautomaticsub'] = True
-        download_options['subtitleslangs'] = ['en']
-        # VTT for a track that has no json3; ytdlp.subtitles parses both.
-        download_options['subtitlesformat'] = 'json3/vtt'
+        download_options.update(_CAPTION_OPTIONS)
 
     # Read app settings (cached 60s TTL) for throttling, cookies and YouTube player client
     app_settings = settings_repo.sync_get_settings()
@@ -413,9 +457,10 @@ def create_ydl_options(
         }
 
     if download_job.audio_only:
-        audio_format = fmt if fmt in AUDIO_FORMATS else 'm4a'
-
         save_path = os.path.join(settings.storage.audio_path, sub_directory)
+
+    if download_job.audio_only and not transcript_only:
+        audio_format = fmt if fmt in AUDIO_FORMATS else 'm4a'
         # Normalize to the requested codec: an AAC source is copied into m4a; an opus
         # source is transcoded. audio_pq (from build_audio_selection) carries the tier's
         # target bitrate so the transcode lands at the requested size; a copied AAC

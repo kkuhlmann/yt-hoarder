@@ -31,6 +31,16 @@ def utc_now() -> datetime:
 class MediaType(str, Enum):
     AUDIO = 'AUDIO'
     VIDEO = 'VIDEO'
+    # Indexed for search but never kept as media: the row ends COMPLETE with a transcript and
+    # no file. A media type rather than a flag because every dedup key (uq_media_details_url_type,
+    # ix_task_records_active_unique, the subscription filter) already includes media_type, so it
+    # never blocks a later real AUDIO/VIDEO download of the same URL.
+    TRANSCRIPT = 'TRANSCRIPT'
+
+
+# What the library lists. TRANSCRIPT rows are reachable only through the Transcripts view,
+# search and MCP.
+LIBRARY_MEDIA_TYPES = (MediaType.AUDIO, MediaType.VIDEO)
 
 
 class JobType(str, Enum):
@@ -232,7 +242,11 @@ class Subscription(SQLModel, table=True):
     __tablename__ = 'subscriptions'
     __table_args__ = (
         UniqueConstraint(
-            'url', 'string_match', 'audio_only', 'user_id', name='uq_subscriptions_url_match_user'
+            'url',
+            'string_match',
+            'media_type',
+            'user_id',
+            name='uq_subscriptions_url_match_type_user',
         ),
     )
 

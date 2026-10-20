@@ -6,19 +6,17 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { GROUP_DIM_LABELS } from "@/app/_hooks/useDownloadGrouping"
 import type { GroupDim } from "@/app/types/DownloadsOptions"
 
-const OPTIONS: { value: GroupDim; label: string }[] = [
-  { value: "channel", label: GROUP_DIM_LABELS.channel },
-  { value: "tag", label: GROUP_DIM_LABELS.tag },
-  { value: "downloaded", label: GROUP_DIM_LABELS.downloaded },
-  { value: "released", label: GROUP_DIM_LABELS.released },
-]
+const DIMS: GroupDim[] = ["channel", "tag", "downloaded", "released"]
 
 export function GroupBySelector({
   value,
   onChange,
+  labels = GROUP_DIM_LABELS,
 }: {
   value: GroupDim | null
   onChange: (dim: GroupDim | null) => void
+  /** Per-scope wording; see groupDimLabels. */
+  labels?: Record<GroupDim, string>
 }) {
   const [open, setOpen] = useState(false)
 
@@ -40,7 +38,7 @@ export function GroupBySelector({
         >
           <FolderIcon className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">
-            {value ? GROUP_DIM_LABELS[value] : "Group"}
+            {value ? labels[value] : "Group"}
           </span>
           <ChevronDownIcon className="h-3 w-3 hidden sm:block" />
         </button>
@@ -52,12 +50,12 @@ export function GroupBySelector({
           onClick={() => select(null)}
         />
         <div className="my-1 border-t border-border" />
-        {OPTIONS.map((opt) => (
+        {DIMS.map((dim) => (
           <OptionButton
-            key={opt.value}
-            label={opt.label}
-            active={value === opt.value}
-            onClick={() => select(opt.value)}
+            key={dim}
+            label={labels[dim]}
+            active={value === dim}
+            onClick={() => select(dim)}
           />
         ))}
       </PopoverContent>

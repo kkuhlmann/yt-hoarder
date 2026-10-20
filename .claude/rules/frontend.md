@@ -24,9 +24,63 @@ paths:
 - `AuthGuard.tsx` gates on `must_change_password` → `ForcePasswordChange.tsx`, mirroring the server-side gate. `LoginPage` swaps its card body between sign-in and the two recovery panels in `auth/`
 - `auth/ChangePasswordDialog.tsx` is opened from the `KeyIcon` in `NavigationBar`, **not** Settings — that tab is `adminOnly` and every `/settings` endpoint requires `get_admin_user_id`, so a non-admin would never reach it. Shares `auth/changePassword.ts` with `ForcePasswordChange`
 - `auth/AccessTokensDialog.tsx` (MCP personal access tokens) lives in the account menu for the same reason, and only when `/auth/me` reports `mcp_enabled`. `MobileNavMenu` takes its handler as an *optional* prop and renders the entry only when it is passed — the safe form of the `onClip` trap below. The plaintext token is cleared on close so reopening can never show it again
-- **Deep links `/?media=<id>&t=<s>`** (what MCP results hand to agents) are parsed once in `page.tsx`'s `useState` initializer, stripped from the address bar on mount, and played by `useDeepLinkPlayback` inside `DownloadsCard`, because the inline `VideoPlayer` only exists there. A query on `/` rather than a path because the static export has no router; it survives sign-in because `AuthGuard` never navigates. An aborted run (StrictMode's double mount) must not mark the link handled, or the second mount has nothing to play
+- **Deep links `/?media=<id>&t=<s>`** (what MCP results hand to agents) are parsed once in `page.tsx`'s `useState` initializer, stripped from the address bar on mount, and played by `useDeepLinkPlayback` inside `DownloadsCard`, because the inline `VideoPlayer` only exists there. A transcript-only item has no file, so its link opens the embed page instead (`onTranscript`). A query on `/` rather than a path because the static export has no router; it survives sign-in because `AuthGuard` never navigates. An aborted run (StrictMode's double mount) must not mark the link handled, or the second mount has nothing to play
 - `media/MediaClipEditor.tsx` is the single surface behind every scissors action (`media/actions.tsx`), dispatching on `media_type`. Note `MediaListView`'s `onClip` is optional and the scissors button renders regardless, so a new list surface that forgets to pass it gets a **silently dead button**
 - `TagMixView.tsx` plays through `MediaPlayerContext` under the sentinel `TAG_MIX_PLAYLIST_ID`, and renders through the same `MediaListView`/`media/columns.tsx` as the library, so mix rows get the library's actions for free
+
+## The media page and transcripts
+
+**One page plays everything, with its transcript beside it; there is deliberately no transcript
+modal.** `media/MediaPage.tsx` is the frame: the way back, `TranscriptButton`, and `TranscriptPanel`
+(beside the player on `lg`, below it on phones). Each host owns its playback, renders its player and
+info as children, and calls `useMediaTranscript(mediaId)` itself. The hosts:
+- `DownloadsCard`'s video page
+- `InlinePlaylistVideoPlayer`, the library queue and playlists
+- `EmbedMediaPage`, for no-file items, through YouTube
+- `AudioMediaPage`, which follows the bottom bar
+
+A new playback surface should be one more host, not a second copy of the panel.
+
+- **The audio page follows the bar, which lives outside every view.** So `page.tsx` holds both the
+  bar's `<audio>` and `audioPageOpen`. `AudioPlayer` publishes the element through `onElement`, and
+  `useMediaElementTime` reads its position with `useSyncExternalStore`, so only the page re-renders at
+  playback rate. Don't move the time into `MediaPlayerContext` state: every consumer would re-render
+  several times a second. Its snapshot is the time sampled at the last event, never a live
+  `element.currentTime`: WebKit (every iOS browser) extrapolates that from the clock while playing,
+  so two reads in one render disagree and React loops until "Maximum update depth exceeded".
+  Desktop Chrome and Firefox hold it steady within a task, which is why only iPhones showed it.
+- **Seek through `seekMediaElement`.** React Compiler's `immutability` rule is an error and rejects
+  assigning `currentTime` on an element a component received as a prop. The helper keeps the
+  assignment out of the component.
+- **`useMediaTranscript` polls only while a job runs.** It opens the panel itself when a job it was
+  watching delivers. The panel's open state is one remembered preference (`showTranscript`), and
+  entry points that came *for* a transcript (the Transcripts view, transcript search hits) switch it on
+  via `showTranscriptPanel()`.
+- **`TranscriptButton`'s states mirror the server's rules** (`transcriptButtonState`). Generate shows
+  only with a file to transcribe and for the owner or an admin, since `POST …/transcripts/{id}/create`
+  refuses anyone else. Nothing shows offline.
+- **`TranscriptPanel`'s search keeps passages containing every typed word**, and the list stops
+  auto-scrolling while a search is active, so results don't move under the user.
+- **`TRANSCRIPTS_SCOPE` is not a status.** `scopeParams` (`lib/mediaScope.ts`) turns it into
+  `has_transcript=true` for the list, groups and stats. Its rows mix three origins, so its actions
+  (`transcriptsViewActions`) decide per row rather than per scope. The type chip and the stars go
+  through `mediaTypeLabel` / `isRatable` there too, so the table and the grid can't disagree.
+  Its grid keeps its own view-mode key (`"transcripts"`), falling back to the Library's.
+- **The Resume button is shared.** The Transcripts view uses the Library's stored preference, but not
+  the Library's pause-while-a-queue-plays, since these pages don't use the queue.
+
+### The YouTube embed (`transcript/YouTubeEmbed.tsx`)
+
+- **The privacy-enhanced domain (`youtube-nocookie.com`), driven over `postMessage`.** Loading the
+  IFrame API script instead would make it the app's only third-party script.
+- **The player reports its position only after a `listening` message**, sent on the iframe's
+  `onLoad`. Position is saved (`savePlaybackPosition`) only while `playerState` is playing, so merely
+  opening a page records no watch.
+- **`playsinline=1` and `referrerPolicy="strict-origin-when-cross-origin"` are load-bearing on an
+  iPhone.** Without them the home-screen app shows an empty player: inline playback keeps iOS from
+  handing the video to its native fullscreen player, and YouTube refuses an embed request that
+  carries no `Referer` (Error 153). Which of the two fixed the reported case was never isolated, so
+  keep both.
 
 ## Hooks
 

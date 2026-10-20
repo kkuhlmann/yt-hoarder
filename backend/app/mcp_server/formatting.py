@@ -162,7 +162,8 @@ def span_to_hit(span: _Span, base_url: str) -> TranscriptHit:
 
 
 def media_app_url(base_url: str, media_id: int, status: str, seconds: float) -> str | None:
-    # Only a downloaded file can be played in the app; anything else would open the
+    # Only a COMPLETE item has somewhere to land in the app: a downloaded file plays, and a
+    # transcript-only item opens its transcript viewer. Anything else would open the
     # library and toast that the media is unavailable.
     if status != TaskStatus.COMPLETE:
         return None

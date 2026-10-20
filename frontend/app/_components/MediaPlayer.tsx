@@ -438,6 +438,7 @@ export function AudioPlayer({
   onCycleVisualizer,
   analyserHandleRef,
   queue,
+  onElement,
 }: {
   id: number
   startTime?: number
@@ -449,8 +450,16 @@ export function AudioPlayer({
   onCycleVisualizer?: () => void
   analyserHandleRef?: RefObject<AudioAnalyserHandle | null>
   queue?: MediaSessionQueue
+  /** Receives the <audio> element, so a page can follow and seek this player. */
+  onElement?: (element: HTMLAudioElement | null) => void
 }) {
   const audioRef = useRef<HTMLAudioElement>(null)
+
+  useEffect(() => {
+    if (!onElement) return
+    onElement(audioRef.current)
+    return () => onElement(null)
+  }, [onElement])
 
   const {
     mediaSrc,

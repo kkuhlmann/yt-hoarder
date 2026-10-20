@@ -19,9 +19,10 @@ import repositories.transcript_blocks as tb_repo
 from config import settings
 from database import db
 from logger import logger
-from models import MediaDetails, TaskStatus, TranscriptBlock
+from models import MediaDetails, MediaType, TaskStatus, TranscriptBlock
 from progress_publisher import publish_progress
 from services.embeddings import OnnxEmbedder
+from ytdlp.files import transcript_staging_base
 from ytdlp.subtitles import find_subtitle_file, parse_subtitle_file
 
 # NOTE: faster_whisper is imported lazily inside the functions that use it.
@@ -549,7 +550,12 @@ def create_transcript_blocks(
     app_settings = settings_repo.sync_get_settings()
     whisper_model_name = settings.transcription.whisper_model
 
-    if force_recompute:
+    # A transcript-only item stages its captions by URL and may have no media file at all.
+    source_path = media_details.file_path
+    if media_details.media_type == MediaType.TRANSCRIPT and not source_path:
+        source_path = transcript_staging_base(media_details.url)
+
+    if force_recompute and media_details.file_path:
         cache_path = _get_whisper_cache_path(media_details.file_path)
         if os.path.exists(cache_path):
             try:
@@ -559,7 +565,7 @@ def create_transcript_blocks(
                 logger.warning(f'Failed to delete whisper cache: {e}')
 
     result = _try_external_subtitles(
-        media_details.file_path,
+        source_path,
         media_details.id,
         task_id,
         app_settings.force_whisper_transcription,
@@ -570,7 +576,7 @@ def create_transcript_blocks(
         return result
 
     result = _try_cached_whisper(
-        media_details.file_path,
+        source_path,
         media_details.id,
         task_id,
         whisper_model_name,
@@ -579,6 +585,10 @@ def create_transcript_blocks(
     )
     if result is not None:
         return result
+
+    if not media_details.file_path:
+        msg = f'No usable captions and no media file to transcribe for {media_details.url}'
+        raise FileNotFoundError(msg)
 
     return _run_fresh_transcription(
         media_details.file_path,

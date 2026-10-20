@@ -15,6 +15,7 @@ export function MediaCard<T extends Download>({
   actions,
   ratingSlot,
   badge,
+  typeLabel = row.media_type,
   className,
   showProgress = true,
 }: {
@@ -25,6 +26,8 @@ export function MediaCard<T extends Download>({
   ratingSlot?: React.ReactNode
   /** Extra top-left badge, e.g. a playlist position. */
   badge?: React.ReactNode
+  /** The type chip's text; defaults to the media type. */
+  typeLabel?: string
   className?: string
   /** The saved-position bar. See MediaListView's showPlaybackProgress. */
   showProgress?: boolean
@@ -57,7 +60,7 @@ export function MediaCard<T extends Download>({
           <span className="absolute top-1.5 left-1.5 flex items-center gap-1">
             {badge}
             <span className="px-1.5 py-0.5 rounded bg-black/75 text-[10px] font-mono text-white leading-none">
-              {row.media_type}
+              {typeLabel}
             </span>
           </span>
           {row.duration != null && (

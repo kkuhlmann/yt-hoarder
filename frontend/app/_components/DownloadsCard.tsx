@@ -3,9 +3,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Dispatch, SetStateAction } from "react"
 import { useFetchEffect } from "@/app/_hooks/useFetchEffect"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { BookOpenIcon, ArrowLeftIcon, MagnifyingGlassIcon, CalendarIcon, EyeIcon, ChevronDownIcon } from "@heroicons/react/20/solid"
+import { BookOpenIcon, MagnifyingGlassIcon, ChevronDownIcon } from "@heroicons/react/20/solid"
 import { ArrowDownTrayIcon } from "@heroicons/react/24/outline"
 import { MediaListView } from "@/app/_components/media/MediaListView"
 import { GroupBySelector } from "@/app/_components/GroupBySelector"
@@ -13,7 +12,7 @@ import { ViewToggle } from "@/app/_components/ViewToggle"
 import { useViewMode } from "@/app/_hooks/useViewMode"
 import { GroupFolderGrid } from "@/app/_components/GroupFolderGrid"
 import { GroupBreadcrumb } from "@/app/_components/GroupBreadcrumb"
-import { useDownloadGrouping } from "@/app/_hooks/useDownloadGrouping"
+import { groupDimLabels, useDownloadGrouping } from "@/app/_hooks/useDownloadGrouping"
 import { useElementDuration } from "@/app/_hooks/useElementDuration"
 import { useTriStateSort } from "@/app/_hooks/useTriStateSort"
 import { useResumePlayback } from "@/app/_hooks/useResumePlayback"
@@ -26,18 +25,25 @@ import { VideoPlayer } from "@/app/_components/MediaPlayer"
 import { InlinePlaylistVideoPlayer } from "@/app/_components/InlinePlaylistVideoPlayer"
 import { VideoClippingControls } from "@/app/_components/VideoClippingControls"
 import { MediaClipEditor } from "@/app/_components/media/MediaClipEditor"
+import { MediaInfo } from "@/app/_components/media/MediaInfo"
 import { Download, DownloadOptionsType, SortDirection, MediaStats, TagInfo, GroupLeafFilter } from "../types/DownloadsOptions"
 import type { PlaylistMedia } from "@/app/types/PlaylistOptions"
 import { TranscriptSegmentTable } from "./TranscriptSegmentTable"
+import { pageKindFor, type TranscriptTarget } from "./transcript/transcript"
+import { TRANSCRIPTS_SCOPE } from "@/app/lib/mediaScope"
+import { MediaPage } from "@/app/_components/media/MediaPage"
+import { EmbedMediaPage } from "@/app/_components/media/EmbedMediaPage"
+import { AudioMediaPage } from "@/app/_components/media/AudioMediaPage"
+import { showTranscriptPanel, useMediaTranscript } from "@/app/_hooks/useMediaTranscript"
+import { seekMediaElement } from "@/app/_hooks/useMediaElementTime"
+import { formatTime } from "@/app/utils"
 import { MediaStatsBar } from "./MediaStatsBar"
 import { FiltersPopover } from "./FiltersPopover"
 import { ScopeSelector } from "./ScopeSelector"
-import { PlaybackControls } from "./PlaybackControls"
-import { StarRating } from "./StarRating"
+import { PlaybackControls, ResumeToggle } from "./PlaybackControls"
 import { Slider } from "@/components/ui/slider"
 import { Separator } from "@/components/ui/separator"
 import { motion, AnimatePresence } from "framer-motion"
-import { formatDate } from "@/app/utils"
 import axios from "axios"
 import toast from "react-hot-toast"
 import { apiUrl } from "@/app/lib/api"
@@ -112,6 +118,11 @@ type DownloadsCardProps = {
   /** A `/?media=&t=` link the page was opened with, played once on arrival. */
   deepLink: DeepLink | null
   onDeepLinkHandled: () => void
+  /** The bottom bar's <audio>, which the audio page follows and seeks. */
+  audioElement: HTMLAudioElement | null
+  /** Whether the audio page shows; page-level, since the bottom bar opens it too. */
+  audioPageOpen: boolean
+  onAudioPageChange: (open: boolean) => void
 }
 
 export function DownloadsCard({
@@ -130,6 +141,9 @@ export function DownloadsCard({
   setSemanticWeight,
   deepLink,
   onDeepLinkHandled,
+  audioElement,
+  audioPageOpen,
+  onAudioPageChange,
 }: DownloadsCardProps) {
   const { offlineMode } = useOffline()
   // Offline mode is playback-only. The transcript search is a server query, so a
@@ -178,11 +192,15 @@ export function DownloadsCard({
 
   const [showDownloadForm, setShowDownloadForm] = useState(false)
   const [viewMode, setViewMode] = useViewMode("downloads")
+  const [transcriptsViewMode, setTranscriptsViewMode] = useViewMode("transcripts")
 
   // openVideoPlayer clears every queue field, so the standalone path must never
   // run for a track the queue is driving — and a transcript jump must still be
   // able to take the pane over from a queue that is mid-play.
-  const [videoSource, setVideoSource] = useState<"standalone" | "queue" | null>(null)
+  // "embed" is the page for an item with no file (transcript-only, or deleted with its
+  // transcript kept), which plays through YouTube.
+  const [videoSource, setVideoSource] = useState<"standalone" | "queue" | "embed" | null>(null)
+  const [embedTarget, setEmbedTarget] = useState<TranscriptTarget | null>(null)
   const displayVideo = videoSource !== null
   const queueActive = mediaPlayer.playlistId === LIBRARY_MIX_PLAYLIST_ID
   const queuePlaying =
@@ -226,15 +244,24 @@ export function DownloadsCard({
   const { duration: videoElementDuration, refCallback: handleVideoRef } =
     useElementDuration(videoRefRef)
 
-  // Grid view only exists for COMPLETE media; SKIPPED and DELETED are table-only.
+  const transcriptsScope = status === TRANSCRIPTS_SCOPE
+  // Grid view only exists for COMPLETE media and the Transcripts view, which keeps a
+  // preference of its own; SKIPPED and DELETED are table-only.
   // Derived rather than written back into viewMode, because viewMode is now a
   // persisted preference — forcing "table" on it would clobber the user's choice
   // the moment they clicked "Show Deleted".
-  const effectiveViewMode = status === "COMPLETE" ? viewMode : "table"
+  const effectiveViewMode = transcriptsScope
+    ? transcriptsViewMode
+    : status === "COMPLETE"
+      ? viewMode
+      : "table"
 
-  // "Group by" folder navigation for the grid view (COMPLETE status only)
+  // "Group by" folder navigation: the Library's grid view, and the Transcripts view,
+  // where an open folder is how a search is narrowed to a channel or a stretch of time.
   const grouping = useDownloadGrouping({
-    enabled: effectiveViewMode === "grid" && status === "COMPLETE" && !offlineMode,
+    enabled:
+      ((effectiveViewMode === "grid" && status === "COMPLETE") || transcriptsScope) &&
+      !offlineMode,
     status,
     search,
     tagIds: selectedTagIds,
@@ -288,6 +315,8 @@ export function DownloadsCard({
      * video isn't bounced back to 0.
      */
     exact_start?: boolean
+    /** Resumed a saved position, so the page offers to start over. */
+    resumed?: boolean
   }>({
     media_details_id: 0,
     title: "",
@@ -304,7 +333,12 @@ export function DownloadsCard({
     data: VideoMetadata
   }>({ key: "", data: NO_METADATA })
   const metadataKey =
-    displayVideo && rowSelect.media_details_id ? String(rowSelect.media_details_id) : ""
+    videoSource === "standalone" && rowSelect.media_details_id
+      ? String(rowSelect.media_details_id)
+      : ""
+  const videoTranscript = useMediaTranscript(
+    videoSource === "standalone" && rowSelect.media_details_id ? rowSelect.media_details_id : null
+  )
   const videoMetadata = metadataState.key === metadataKey ? metadataState.data : NO_METADATA
 
   useFetchEffect(
@@ -464,6 +498,7 @@ export function DownloadsCard({
     !semanticSearch &&
     !(search.length > 0 && search.length < 3) &&
     !displayVideo &&
+    !audioPageOpen &&
     !clipTarget &&
     !grouping.showFolders
 
@@ -648,9 +683,12 @@ export function DownloadsCard({
       playback_position: startAt,
       thumbnail_path: row.thumbnail_path,
       exact_start: false,
+      // Not when the player will restart it anyway: the last 30 s start over.
+      resumed: startAt > 0 && !(row.duration && startAt > row.duration - 30),
     })
     if (row.media_type === "VIDEO") {
       closeAudioPlayer()
+      onAudioPageChange(false)
       setVideoSource("standalone")
     } else if (row.media_type === "AUDIO") {
       setVideoSource(null)
@@ -725,6 +763,7 @@ export function DownloadsCard({
     onVideo: (media, seconds) => {
       playLinked(media, seconds)
       closeAudioPlayer()
+      onAudioPageChange(false)
       setVideoSource("standalone")
     },
     onAudio: (media, seconds) => {
@@ -741,19 +780,93 @@ export function DownloadsCard({
         thumbnail_path: media.thumbnail_path,
       })
     },
+    onTranscript: (media, seconds) => openEmbedPage(media.id, seconds),
     onHandled: onDeepLinkHandled,
   })
 
+  // A video opened from a transcript search hit: its page, with the panel showing.
   const showTranscriptVideo = useCallback(
-    (visible: boolean) => setVideoSource(visible ? "standalone" : null),
-    []
+    (visible: boolean) => {
+      if (visible) {
+        showTranscriptPanel()
+        onAudioPageChange(false)
+      }
+      setVideoSource(visible ? "standalone" : null)
+    },
+    [onAudioPageChange]
+  )
+
+  const openEmbedPage = useCallback(
+    (mediaId: number, seconds: number | null) => {
+      onAudioPageChange(false)
+      setEmbedTarget({ mediaId, seconds })
+      setVideoSource("embed")
+    },
+    [onAudioPageChange]
   )
 
   /**
-   * Table row click. Unlike a grid card, a DELETED row opens the source URL and
-   * a SKIPPED row fills the download form — the file itself isn't playable.
+   * Opens a row for its transcript (the Transcripts view): its own page, panel showing.
+   * `seconds` null resumes the row's saved position, within the player's rule that the
+   * last 30 seconds start over; audio plays in the bottom bar with the audio page open.
+   */
+  const openMediaPage = (row: Download, seconds: number | null) => {
+    showTranscriptPanel()
+    const kind = pageKindFor(row)
+    if (kind === "embed") {
+      openEmbedPage(row.media_details_id, seconds)
+      return
+    }
+    const saved = row.playback_position ?? 0
+    const startAt = seconds ?? (row.duration && saved > row.duration - 30 ? 0 : saved)
+    if (kind === "video") {
+      closeAudioPlayer()
+      onAudioPageChange(false)
+      setRowSelect({
+        media_details_id: row.media_details_id,
+        title: row.title,
+        channel: row.channel,
+        url: row.url,
+        duration: row.duration || 0,
+        playback_position: startAt,
+        thumbnail_path: row.thumbnail_path,
+        exact_start: true,
+        resumed: seconds === null && startAt > 0,
+      })
+      setVideoSource("standalone")
+      return
+    }
+    setVideoSource(null)
+    openAudioPlayer({
+      media_details_id: row.media_details_id,
+      title: row.title,
+      channel: row.channel,
+      url: row.url,
+      start_time: startAt,
+      exact_start: true,
+      duration: row.duration,
+      thumbnail_path: row.thumbnail_path,
+    })
+    onAudioPageChange(true)
+  }
+  // A row names no moment, so with Resume on it picks up where it was left; off, it
+  // starts from the beginning. Shares the Library's preference, and unlike the Library's
+  // it is never paused by a playing queue, which these pages don't use.
+  const viewRowTranscript = (row: Download) => openMediaPage(row, resumeEnabled ? null : 0)
+
+  const seekVideo = (seconds: number) => seekMediaElement(videoRefRef.current, seconds)
+  const showPlaybackProgress = transcriptsScope ? resumeEnabled : resumeActive
+
+  /**
+   * Table row click. Unlike a grid card, a DELETED row opens the source URL, a
+   * SKIPPED row fills the download form, and a Transcripts row opens its transcript —
+   * none of those rows is reliably a file to play.
    */
   const handleRowActivate = (row: Download) => {
+    if (transcriptsScope) {
+      viewRowTranscript(row)
+      return
+    }
     if (status === "DELETED") {
       if (row.url) window.open(row.url, "_blank", "noopener,noreferrer")
       return
@@ -907,7 +1020,7 @@ export function DownloadsCard({
             />
           </CardContent>
         ) : videoSource === "queue" ? (
-          <CardContent className="pt-6 space-y-4">
+          <CardContent className="pt-3 md:pt-4 space-y-4">
             <InlinePlaylistVideoPlayer
               backLabel="Return to Library"
               onReturn={() => setVideoSource(null)}
@@ -928,77 +1041,67 @@ export function DownloadsCard({
               />
             )}
           </CardContent>
-        ) : displayVideo ? (
-          <CardContent className="pt-6 space-y-4">
-            <Button
-              variant="outline"
-              onClick={() => setVideoSource(null)}
-              className="gap-2 mt-4"
+        ) : videoSource === "standalone" ? (
+          <CardContent className="pt-3 md:pt-4">
+            <MediaPage
+              transcript={videoTranscript}
+              onReturn={() => setVideoSource(null)}
+              currentTime={videoCurrentTime}
+              onSeek={seekVideo}
             >
-              <ArrowLeftIcon className="h-4 w-4" />
-              Return to Library
-            </Button>
-            <VideoPlayer
-              id={rowSelect.media_details_id}
-              startTime={rowSelect.playback_position}
-              duration={rowSelect.duration}
-              exactStart={rowSelect.exact_start}
-              onTimeUpdate={setVideoCurrentTime}
-              videoRefCallback={handleVideoRef}
-            />
-            <div className="text-center space-y-1">
-              <h3 className="font-mono text-lg text-text-primary">
-                {rowSelect.title}
-              </h3>
-              <p className="text-sm text-text-secondary">{rowSelect.channel}</p>
-              {videoMetadata.rating !== undefined && (
-                <div className="flex justify-center mt-0.5">
-                  <StarRating
-                    rating={videoMetadata.rating}
-                    onRate={(r) => handleVideoRate(rowSelect.media_details_id, r)}
-                  />
-                </div>
-              )}
-              {rowSelect.url && (
-                <a
-                  href={rowSelect.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-text-muted hover:text-matrix transition-colors font-mono truncate block"
-                >
-                  {rowSelect.url}
-                </a>
-              )}
-              {(videoMetadata.release_timestamp || videoMetadata.access_count !== undefined) && (
-                <div className="flex items-center justify-center gap-4 text-xs text-text-muted font-mono mt-1">
-                  {videoMetadata.release_timestamp && (
-                    <span className="flex items-center gap-1">
-                      <CalendarIcon className="h-3 w-3" />
-                      {formatDate(videoMetadata.release_timestamp)}
-                    </span>
-                  )}
-                  {videoMetadata.access_count !== undefined && (
-                    <span className="flex items-center gap-1">
-                      <EyeIcon className="h-3 w-3" />
-                      {videoMetadata.access_count} {videoMetadata.access_count === 1 ? "play" : "plays"}
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-            {!offlineMode && (
-              <VideoClippingControls
-                mediaDetailsId={rowSelect.media_details_id}
-                duration={rowSelect.duration || videoElementDuration}
-                currentTime={videoCurrentTime}
-                onSeek={(time) => {
-                  if (videoRefRef.current) {
-                    videoRefRef.current.currentTime = time
-                  }
-                }}
-                videoRef={videoRefRef}
+              <VideoPlayer
+                id={rowSelect.media_details_id}
+                startTime={rowSelect.playback_position}
+                duration={rowSelect.duration}
+                exactStart={rowSelect.exact_start}
+                onTimeUpdate={setVideoCurrentTime}
+                videoRefCallback={handleVideoRef}
               />
-            )}
+              {rowSelect.resumed && (
+                <p className="text-xs font-mono text-text-muted text-center">
+                  Resumed at {formatTime(rowSelect.playback_position)} ·{" "}
+                  <button
+                    onClick={() => {
+                      setRowSelect((prev) => ({ ...prev, resumed: false }))
+                      seekVideo(0)
+                    }}
+                    className="text-matrix hover:underline"
+                  >
+                    Start over
+                  </button>
+                </p>
+              )}
+              <MediaInfo
+                title={rowSelect.title}
+                channel={rowSelect.channel}
+                url={rowSelect.url}
+                releaseTimestamp={videoMetadata.release_timestamp}
+                accessCount={videoMetadata.access_count}
+                rating={videoMetadata.rating}
+                onRate={(r) => handleVideoRate(rowSelect.media_details_id, r)}
+              />
+              {!offlineMode && (
+                <VideoClippingControls
+                  mediaDetailsId={rowSelect.media_details_id}
+                  duration={rowSelect.duration || videoElementDuration}
+                  currentTime={videoCurrentTime}
+                  onSeek={(time) => {
+                    if (videoRefRef.current) {
+                      videoRefRef.current.currentTime = time
+                    }
+                  }}
+                  videoRef={videoRefRef}
+                />
+              )}
+            </MediaPage>
+          </CardContent>
+        ) : videoSource === "embed" && embedTarget ? (
+          <CardContent className="pt-3 md:pt-4">
+            <EmbedMediaPage target={embedTarget} onReturn={() => setVideoSource(null)} />
+          </CardContent>
+        ) : audioPageOpen ? (
+          <CardContent className="pt-3 md:pt-4">
+            <AudioMediaPage audioElement={audioElement} onReturn={() => onAudioPageChange(false)} />
           </CardContent>
         ) : (
           <>
@@ -1011,18 +1114,39 @@ export function DownloadsCard({
                       onChange={(next) => {
                         setStatus(next)
                         setPageNumber(1)
+                        // A folder opened in one scope may not exist in the next.
+                        grouping.reset()
                       }}
                     />
                   )}
+                  {(status === "COMPLETE" || transcriptsScope) && (
+                    <FiltersPopover
+                      allTags={allTags}
+                      selectedTagIds={selectedTagIds}
+                      onTagsChange={(ids) => { setSelectedTagIds(ids); setPageNumber(1) }}
+                      minRating={minRating}
+                      onRatingChange={(r) => { setMinRating(r); setPageNumber(1) }}
+                    />
+                  )}
+                  {transcriptsScope && (
+                    <>
+                      <Separator orientation="vertical" className="h-4" />
+                      <ViewToggle mode={transcriptsViewMode} onChange={setTranscriptsViewMode} />
+                      <GroupBySelector
+                        value={grouping.groupDim}
+                        onChange={grouping.setGroupDim}
+                        labels={groupDimLabels(status)}
+                      />
+                      <Separator orientation="vertical" className="h-4" />
+                      <ResumeToggle
+                        checked={resumeEnabled}
+                        onChange={setResumeEnabled}
+                        title="Open each transcript where you left off, and show how far through each one you are"
+                      />
+                    </>
+                  )}
                   {status === "COMPLETE" && (
                     <>
-                      <FiltersPopover
-                        allTags={allTags}
-                        selectedTagIds={selectedTagIds}
-                        onTagsChange={(ids) => { setSelectedTagIds(ids); setPageNumber(1) }}
-                        minRating={minRating}
-                        onRatingChange={(r) => { setMinRating(r); setPageNumber(1) }}
-                      />
                       <div className="flex items-center gap-1.5 sm:gap-3">
                         <Separator orientation="vertical" className="h-4" />
                         <ViewToggle mode={effectiveViewMode} onChange={setViewMode} />
@@ -1107,7 +1231,7 @@ export function DownloadsCard({
                 />
               )}
 
-              <div className={semanticSearch || effectiveViewMode === "table" ? "md:rounded-lg md:border md:border-border overflow-hidden" : ""}>
+              <div className={semanticSearch || (effectiveViewMode === "table" && !(transcriptsScope && grouping.showFolders)) ? "md:rounded-lg md:border md:border-border overflow-hidden" : ""}>
                 {semanticSearch ? (
                   <>
                   {grouping.isGrouping && (
@@ -1126,6 +1250,7 @@ export function DownloadsCard({
                     loading={loading}
                     setRowSelect={setRowSelect}
                     setDisplayVideo={showTranscriptVideo}
+                    onOpenTranscript={openEmbedPage}
                     searchQuery={semanticSearch}
                   />
                   </>
@@ -1163,15 +1288,36 @@ export function DownloadsCard({
                     onSort={handleSort}
                     allTags={allTags}
                     onTagsChange={loadTags}
-                    onRowClick={handleMediaOpen}
+                    onRowClick={transcriptsScope ? handleRowActivate : handleMediaOpen}
                     onClip={handleMediaClip}
                     onPopulateSkipped={populateDownloadFromSkipped}
-                    showPlaybackProgress={resumeActive}
+                    onViewTranscript={viewRowTranscript}
+                    showPlaybackProgress={showPlaybackProgress}
                     rowClassName={nowPlayingClass}
                   />
                   </>
                   )
+                ) : transcriptsScope && grouping.showFolders ? (
+                  <GroupFolderGrid
+                    breadcrumb={grouping.breadcrumb}
+                    folders={grouping.folders}
+                    loading={grouping.foldersLoading}
+                    pageCount={grouping.foldersPageCount}
+                    pageNumber={grouping.folderPage}
+                    setPageNumber={grouping.setFolderPage}
+                    canGoUp={grouping.groupPath.length > 0}
+                    onGoUp={grouping.goUp}
+                    onOpen={grouping.openFolder}
+                  />
                 ) : (
+                  <>
+                  {transcriptsScope && grouping.atLeaf && (
+                    <GroupBreadcrumb
+                      breadcrumb={grouping.breadcrumb}
+                      canGoUp
+                      onGoUp={grouping.goUp}
+                    />
+                  )}
                   <MediaListView
                     viewMode="table"
                     rows={!semanticSearch ? (tableRows as Download[]) : []}
@@ -1187,7 +1333,8 @@ export function DownloadsCard({
                     onRowClick={handleRowActivate}
                     onClip={handleMediaClip}
                     onPopulateSkipped={populateDownloadFromSkipped}
-                    showPlaybackProgress={resumeActive}
+                    onViewTranscript={viewRowTranscript}
+                    showPlaybackProgress={showPlaybackProgress}
                     rowClassName={nowPlayingClass}
                     {...(selectionActive && {
                       selection: {
@@ -1199,6 +1346,7 @@ export function DownloadsCard({
                       },
                     })}
                   />
+                  </>
                 )}
               </div>
 

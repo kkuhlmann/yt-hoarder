@@ -873,6 +873,25 @@ def _load_existing_media(dtos: list[DownloadJobDTO]) -> dict[tuple[str, str | No
     return existing
 
 
+def _load_superseded_transcript_jobs(dtos: list[DownloadJobDTO]) -> set[tuple[int | None, str]]:
+    """(user_id, url) of the transcript-only jobs whose user already has the full media's
+    transcript to search, one query per user.
+
+    Such a job is dropped without the cross-user grant _handle_existing_media would make:
+    the grant would put the transcript-only row back in front of a user who has replaced
+    it, on every subscription tick.
+    """
+    urls_by_user: dict[int | None, list[str]] = {}
+    for dto in dtos:
+        if dto.media_type == MediaType.TRANSCRIPT:
+            urls_by_user.setdefault(dto.user_id, []).append(dto.url)
+    return {
+        (user_id, url)
+        for user_id, urls in urls_by_user.items()
+        for url in md_repo.sync_get_urls_with_full_transcript(urls, user_id)
+    }
+
+
 def filter_completed_downloads_impl(dl_jobs: list[dict] | None) -> list[dict]:
     """Drop jobs whose media already exists, is active, or isn't due yet; grant dedup access.
 
@@ -881,9 +900,19 @@ def filter_completed_downloads_impl(dl_jobs: list[dict] | None) -> list[dict]:
     """
     dtos = _normalize_jobs(dl_jobs or [])
     existing = _load_existing_media(dtos)
+    superseded = _load_superseded_transcript_jobs(dtos)
 
     filtered_dl_jobs = []
     for dto in dtos:
+        if (dto.user_id, dto.url) in superseded and dto.media_type == MediaType.TRANSCRIPT:
+            logger.debug(f'Skipping transcript-only {dto.url} - its full media is already indexed')
+            tr_repo.sync_retire_placeholder(
+                dto.placeholder_task_id,
+                TaskStatus.SKIPPED,
+                'Transcript already in your Transcripts view',
+            )
+            continue
+
         md = existing.get((dto.url, dto.media_type.value if dto.media_type else None))
 
         if md is None:
@@ -1294,6 +1323,9 @@ def _handle_playlist_creation(dto: DownloadJobDTO) -> None:
     """
     if not (dto.playlist_name and dto.source_playlist_url):
         return
+    if dto.media_type == MediaType.TRANSCRIPT:
+        # Playlists are for playing; a transcript-only item has nothing to play.
+        return
 
     from repositories import playlists as playlist_repo
 
@@ -1427,7 +1459,8 @@ def create_download_and_transcript_chains_impl(download_job: dict) -> dict:
 
     dto = deserialize_download_job(download_job)
 
-    if _check_storage_quota(dto.user_id, dto.url):
+    # A transcript-only item keeps no media, so the storage limit doesn't apply to it.
+    if dto.media_type != MediaType.TRANSCRIPT and _check_storage_quota(dto.user_id, dto.url):
         tr_repo.sync_retire_placeholder(
             dto.placeholder_task_id, TaskStatus.FAILED, 'Storage limit reached'
         )

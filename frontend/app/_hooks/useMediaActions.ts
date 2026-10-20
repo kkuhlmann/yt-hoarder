@@ -42,6 +42,10 @@ export const saveRating = (mediaId: number, rating: number | null) =>
     ? axios.delete(apiUrl(mediaApi.rating(mediaId)))
     : axios.put(apiUrl(mediaApi.rating(mediaId)), { rating })
 
+/** Starts a transcription job; the server accepts it from the owner or an admin. */
+export const requestTranscript = (mediaId: number) =>
+  axios.post(apiUrl(mediaApi.createTranscript(mediaId)))
+
 /** The media row actions, in one place — every list surface shares these. */
 export function useMediaActions({
   patchRow,
@@ -84,9 +88,7 @@ export function useMediaActions({
         // the call site; doing it here means a caller can't forget it.
         patchRow(mediaId, { transcript_task_status: "QUEUED" })
         try {
-          const response = await axios.post(
-            apiUrl(mediaApi.createTranscript(mediaId)),
-          )
+          const response = await requestTranscript(mediaId)
           if (response.status === 200) {
             toast.success("Submitted Transcript Job")
             patchRow(mediaId, {

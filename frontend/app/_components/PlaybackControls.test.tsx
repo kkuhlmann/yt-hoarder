@@ -18,7 +18,7 @@ function renderControls(overrides: Partial<React.ComponentProps<typeof PlaybackC
 
 const playAll = () => screen.getByText("Play All").closest("button")!
 const shuffle = () => screen.getByText("Shuffle").closest("button")!
-const options = () => screen.getByLabelText("Playback options")
+const resume = () => screen.getByText("Resume").closest("button")!
 
 describe("PlaybackControls", () => {
   it.each<[QueueMode, string | null, string | null]>([
@@ -39,12 +39,21 @@ describe("PlaybackControls", () => {
     expect(shuffle().getAttribute("aria-pressed")).toBeNull()
   })
 
-  it("keeps Resume behind the options menu", () => {
-    renderControls()
-    expect(screen.queryByText("Resume")).toBeNull()
+  it("shows Resume on the bar as a button that turns on", () => {
+    const props = renderControls()
 
-    fireEvent.click(options())
-    expect(screen.getByText("Resume")).toBeTruthy()
+    expect(screen.queryByLabelText("Playback options")).toBeNull()
+    expect(resume().getAttribute("aria-pressed")).toBe("false")
+    fireEvent.click(resume())
+    expect(props.resume.onChange).toHaveBeenCalledWith(true)
+  })
+
+  it("shows Resume on as pressed, and turns it off", () => {
+    const props = renderControls({ resume: { checked: true, onChange: vi.fn() } })
+
+    expect(resume().getAttribute("aria-pressed")).toBe("true")
+    fireEvent.click(resume())
+    expect(props.resume.onChange).toHaveBeenCalledWith(false)
   })
 
   it("disables Resume while a queue is playing, without dropping the preference", () => {
@@ -52,13 +61,11 @@ describe("PlaybackControls", () => {
       queueMode: "ordered",
       resume: { checked: true, disabled: true, onChange: vi.fn() },
     })
-    fireEvent.click(options())
 
-    const toggle = screen.getByRole("switch")
-    expect(toggle.hasAttribute("disabled")).toBe(true)
-    expect(toggle.getAttribute("aria-checked")).toBe("true")
+    expect(resume().hasAttribute("disabled")).toBe(true)
+    expect(resume().getAttribute("aria-pressed")).toBe("true")
 
-    fireEvent.click(toggle)
+    fireEvent.click(resume())
     expect(props.resume.onChange).not.toHaveBeenCalled()
   })
 

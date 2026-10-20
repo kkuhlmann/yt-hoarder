@@ -14,9 +14,9 @@ one covering the area they're about to touch.
 
 | Read when touching | File | Covers |
 |---|---|---|
-| `app/orchestrator/`, `app/tasks/` | `.claude/rules/orchestrator.md` | Deferral rules, lane resizing, cron retargeting, fan-out throttling, the RESOLVING placeholder, lifecycle hooks, sprite generation |
-| `app/repositories/`, `app/routers/`, `app/services/`, `models.py`, `migrations/` | `.claude/rules/backend-domains.md` | The access-repo factory, `/semantic/search` scoping, embeddings, password recovery, migrations, the seeded `app_settings` row |
-| `frontend/` | `.claude/rules/frontend.md` | Next 16 / Turbopack / Tailwind v4 toolchain, component and hook constraints, `useAudioAnalyser`, Vitest |
+| `app/orchestrator/`, `app/tasks/` | `.claude/rules/orchestrator.md` | Deferral rules, lane resizing, cron retargeting, fan-out throttling, the RESOLVING placeholder, lifecycle hooks, sprite generation, the transcript-only chain |
+| `app/repositories/`, `app/routers/`, `app/services/`, `models.py`, `migrations/` | `.claude/rules/backend-domains.md` | The access-repo factory, `/semantic/search` scoping, embeddings, password recovery, migrations, the seeded `app_settings` row, transcript-only media in queries |
+| `frontend/` | `.claude/rules/frontend.md` | Next 16 / Turbopack / Tailwind v4 toolchain, component and hook constraints, `useAudioAnalyser`, the media page and transcript panel, the YouTube embed, Vitest |
 | Dockerfiles, compose files, workflows, `Taskfile.yml`, `setup.sh`, `config.py` | `.claude/rules/deployment.md` | Taskfile container traps, multi-arch images and GHCR, config plumbing |
 | `backend/tests/` | `.claude/rules/testing.md` | The conftest fixture chain, and why each piece of it is load-bearing |
 | `app/ytdlp/` | `.claude/rules/ytdlp.md` | Player clients, the three throttling knobs, POT provider keys, cookie handling, impersonation |
@@ -50,6 +50,8 @@ that keeps faster-whisper out of the main process.
 - `Tag` unique per `(user_id, name)`; `MediaTag` unique per `(user_id, media_details_id, tag_id)`
 - `MediaRating` one per `(user_id, media_details_id)`, 1–5 enforced by a CHECK constraint
 - `MediaAccess` carries a source type: DIRECT, PLAYLIST, SUBSCRIPTION
+- `MediaType` has a third value, `TRANSCRIPT`, for media indexed but never kept (see *Transcript-only media*); `LIBRARY_MEDIA_TYPES` is the other two
+- `Subscription` unique per `(url, string_match, media_type, user_id)` — `media_type`, not `audio_only`, since a transcript-only subscription is `audio_only` without being an audio one. Editing `audio_only` moves `media_type` with it; a TRANSCRIPT subscription's mode is fixed
 - `User` also holds the recovery columns: `password_reset_requested_at`, `must_change_password`, `password_changed_at`, `recovery_code_hash`, `recovery_code_expires_at`
 
 **Repositories** (`repositories/`) — `task_records/` is a package: `crud.py` (async), `retry.py`
@@ -104,6 +106,7 @@ dies with a password change by the same `password_changed_at` rule as cookie ses
 
 **Storage limits:** `User.storage_limit_bytes` (nullable, None = unlimited), set via
 `PUT /auth/users/{user_id}/storage-limit`, measured from actual files owned by the user.
+Transcript-only items are exempt at all three checks (router, populate, download job): they keep no file.
 
 **Password Recovery** — no email integration exists; every path is trust- or filesystem-based
 (`/auth/forgot-password`, admin recovery via a single-use code in `/data/admin-recovery.txt`, and the
@@ -221,6 +224,39 @@ retried the whole download to FAILED and the transcript never reached Whisper, s
 `_download_with_fallback` (`tasks/downloads.py`) re-runs once with `with_subtitles=False` and the
 transcript job falls through to Whisper. Don't reach for `ignoreerrors=True` instead: it swallows
 real media errors too, and a download that fetched nothing would return as a success.
+
+## Transcript-only media
+
+A `MediaType.TRANSCRIPT` item is indexed for search but never kept as media: its row ends `COMPLETE`
+with transcript blocks and no file. **It is a media type rather than a flag on purpose.** Every dedup
+key — `uq_media_details_url_type`, `ix_task_records_active_unique`, the subscription filter's
+`(url, media_type)` lookup — already includes `media_type`, so a transcript-only row can never make a
+later real AUDIO/VIDEO download of the same URL look done, and two users indexing one channel share
+one row through the ordinary cross-user grant. The library lists `LIBRARY_MEDIA_TYPES`; transcript
+search and MCP span every type.
+
+The chain is the ordinary DOWNLOAD → TRANSCRIPT pair. The download job only **stages** — YouTube
+captions, else the smallest audio stream for Whisper — under `{audio_path}/.transcript-only/{url_hash}.*`,
+and never runs ML; the transcript job embeds on the ml lane like any other. Captions are found by that
+URL-derived name, not a payload path, because startup recovery rebuilds the transcript job from the
+database row alone. The row sits in `POSTPROCESSING` until the transcript lands, and **every way the
+chain can end must delete the staging and give the row a terminal status**: the hooks cover jobs that
+ran, and the cancel endpoints cover a transcript cancelled while still queued, which no hook ever
+sees. Details in `.claude/rules/orchestrator.md`.
+
+**A thumbnail lives exactly as long as the media file or the transcript does.** A transcript-only
+item's (YouTube's 480px image, ~20 KB) is staged with its captions and kept only once the
+transcript lands, so a chain that fails keeps none; a library item deleted with its transcript kept
+keeps its thumbnail, until that transcript goes too. Kept ones live in `{audio_path}/.thumbnails/`;
+the delete paths are in `.claude/rules/backend-domains.md`.
+
+**A full download supersedes the transcript-only entry at query time, per viewer**:
+`_build_media_conditions` hides a TRANSCRIPT row whenever the user can see a full row of the same URL
+that has transcript blocks. Not by deleting access rows — the next subscription tick would re-grant
+them, and an owner can't lose `owner_id` — which is also why the subscription filter drops such jobs
+*without* the cross-user grant it makes for everything else. Details in
+`.claude/rules/backend-domains.md`; the frontend's single media page (no modal) is in
+`.claude/rules/frontend.md`.
 
 ## yt-dlp Configuration
 

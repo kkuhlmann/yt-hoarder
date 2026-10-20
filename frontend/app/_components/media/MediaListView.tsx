@@ -21,6 +21,7 @@ import type { ViewMode } from "@/app/_hooks/useViewMode"
 import { useAuth } from "@/app/context/AuthContext"
 import { useMediaPlayer } from "@/app/context/MediaPlayerContext"
 import { useOffline } from "@/app/context/OfflineContext"
+import { isRatable, mediaTypeLabel } from "@/app/lib/mediaScope"
 import type {
   Download,
   SortDirection,
@@ -31,7 +32,7 @@ export type MediaListViewProps<T extends Download> = {
   viewMode: ViewMode
   rows: T[]
   loading: boolean
-  /** COMPLETE | DELETED | SKIPPED — drives the available actions. */
+  /** COMPLETE | TRANSCRIPTS | DELETED | SKIPPED — drives the available actions. */
   status: string
   onRefresh: () => void
   patchRow: (mediaDetailsId: number, patch: Partial<Download>) => void
@@ -48,6 +49,8 @@ export type MediaListViewProps<T extends Download> = {
   rowClassName?: (row: T) => string | undefined
   onClip?: (row: T) => void
   onPopulateSkipped?: (row: T) => void
+  /** Transcripts view: opens the transcript viewer for a row. */
+  onViewTranscript?: (row: T) => void
 
   /** Appended after the shared media actions (playlist reorder/remove). */
   extraActions?: ActionDescriptor<T>[]
@@ -89,6 +92,7 @@ export function MediaListView<T extends Download>({
   rowClassName,
   onClip,
   onPopulateSkipped,
+  onViewTranscript,
   extraActions = [],
   leadingColumns = [],
   selection,
@@ -137,6 +141,7 @@ export function MediaListView<T extends Download>({
         onPopulateSkipped: onPopulateSkipped as
           | ((row: Download) => void)
           | undefined,
+        onViewTranscript: onViewTranscript as ((row: Download) => void) | undefined,
       }),
       ...extraActions,
     ] as ActionDescriptor<T>[]
@@ -173,8 +178,9 @@ export function MediaListView<T extends Download>({
               onClick={() => onRowClick?.(row)}
               actions={<ActionList actions={cardActions} row={row} />}
               showProgress={showPlaybackProgress}
+              typeLabel={mediaTypeLabel(status, row)}
               ratingSlot={
-                status === "COMPLETE" ? (
+                isRatable(status, row) ? (
                   <StarRating
                     rating={row.rating}
                     onRate={rate && ((r) => rate(row.media_details_id, r))}
