@@ -784,6 +784,7 @@ async def get_hybrid_search_results(
     released_from: datetime | None = None,
     released_to: datetime | None = None,
     fts_text: str | None = None,
+    title_contains: str | None = None,
 ) -> list[dict]:
     """
     Search transcript blocks using hybrid keyword + vector search with Reciprocal Rank Fusion.
@@ -801,6 +802,7 @@ async def get_hybrid_search_results(
         user_id: Optional user ID to filter by access. None = no filter (admin view).
         channels / released_from / released_to: narrow the scope like the other filters
             (released_to exclusive); see `_build_media_conditions`.
+        title_contains: like `standard_search` but matching only the title, never the channel.
         fts_text: the full-text side's query when it should differ from the embedded
             `search_query`, so exact names can boost a paraphrased semantic query.
 
@@ -826,6 +828,7 @@ async def get_hybrid_search_results(
         released_from,
         released_to,
         fts_text,
+        title_contains,
     )
     if cache_key in semantic_cache:
         return semantic_cache[cache_key]
@@ -844,6 +847,7 @@ async def get_hybrid_search_results(
         channels=channels,
         released_from=released_from,
         released_to=released_to,
+        title_contains=title_contains,
     )
     # Nothing in scope: answer without paying for an embedding.
     if scope is not None and scope.empty:

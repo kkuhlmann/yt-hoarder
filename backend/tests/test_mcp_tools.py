@@ -174,6 +174,42 @@ async def test_a_partly_matched_channel_list_searches_the_matches(server, librar
     assert _media_ids(result) == {library.esa}
 
 
+async def test_title_contains_narrows_to_matching_titles_and_is_reported(server, library):
+    result = await call(
+        server,
+        library.owner,
+        'search_transcripts',
+        {'query': 'spacecraft', 'title_contains': 'ariane'},
+    )
+
+    assert _media_ids(result) == {library.esa}
+    assert result.structured_content['applied']['title_contains'] == 'ariane'
+    assert 'title contains: ariane' in result.content[0].text
+
+
+async def test_title_contains_that_matches_nothing_finds_nothing(server, library):
+    result = await call(
+        server,
+        library.owner,
+        'search_transcripts',
+        {'query': 'spacecraft', 'title_contains': 'no such title'},
+    )
+
+    assert result.structured_content['results'] == []
+
+
+async def test_title_contains_without_terms_is_an_error_the_model_can_read(server, library):
+    result = await call(
+        server,
+        library.owner,
+        'search_transcripts',
+        {'query': 'spacecraft', 'title_contains': ' && '},
+    )
+
+    assert result.is_error
+    assert 'no search terms' in result.content[0].text
+
+
 async def test_dates_accept_partial_forms_and_bound_inclusively(server, library):
     from_2025 = await call(
         server,

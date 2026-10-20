@@ -8,7 +8,7 @@ from sqlalchemy import select as sa_select
 from sqlalchemy import update as sa_update
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import aliased, joinedload
+from sqlalchemy.orm import InstrumentedAttribute, aliased, joinedload
 from sqlmodel import select
 
 from database import db
@@ -80,11 +80,14 @@ def _copy_upsert_fields(source: MediaDetails, target: MediaDetails) -> None:
 # --- Shared helpers ---
 
 
-def _build_search_condition(search: str):
-    """Parse a search string into a channel/title match clause.
+def _build_search_condition(
+    search: str,
+    columns: Sequence[InstrumentedAttribute] = (MediaDetails.channel, MediaDetails.title),
+):
+    """Parse a search string into a match clause over `columns` (channel/title by default).
 
     Splits on '||' (OR) then '&&' (AND); '&&' binds tighter than '||'. Each term
-    is a case-insensitive substring match against channel OR title. Single '&' /
+    is a case-insensitive substring match against any one of `columns`. Single '&' /
     '|' are treated as literal characters (only the doubled forms are operators),
     so titles like 'Law & Order' keep matching literally. A single-term search
     collapses to exactly the previous behavior. Returns None when no non-empty
@@ -93,10 +96,7 @@ def _build_search_condition(search: str):
     or_groups = []
     for raw_group in search.split('||'):
         term_clauses = [
-            or_(
-                MediaDetails.channel.ilike(f'%{term}%'),
-                MediaDetails.title.ilike(f'%{term}%'),
-            )
+            or_(*(column.ilike(f'%{term}%') for column in columns))
             for term in (t.strip() for t in raw_group.split('&&'))
             if term
         ]
@@ -163,6 +163,7 @@ def _build_media_conditions(
     channels: list[str] | None = None,
     released_from: datetime | None = None,
     released_to: datetime | None = None,
+    title_contains: str | None = None,
     media_types: Sequence[MediaType] | None = None,
     has_transcript: bool = False,
 ) -> list:
@@ -182,6 +183,9 @@ def _build_media_conditions(
     upload-date range (released_to exclusive), for MCP transcript search. An empty
     channels list matches nothing rather than everything: a caller whose channel names
     all failed to resolve must not silently get the whole library back.
+
+    title_contains is `search` restricted to the title: the same `&&` / `||` syntax, but
+    never matching the channel name.
 
     media_types limits the result to those types; the library passes LIBRARY_MEDIA_TYPES,
     while the transcript search passes none so transcript-only rows stay searchable.
@@ -253,7 +257,15 @@ def _build_media_conditions(
         conditions.append(and_(field >= start, field < end))
 
     conditions.extend(_channel_and_release_conditions(channels, released_from, released_to))
+    conditions.extend(_title_conditions(title_contains))
     return conditions
+
+
+def _title_conditions(title_contains: str | None) -> list:
+    if not title_contains:
+        return []
+    condition = _build_search_condition(title_contains, columns=(MediaDetails.title,))
+    return [] if condition is None else [condition]
 
 
 def _type_and_transcript_conditions(

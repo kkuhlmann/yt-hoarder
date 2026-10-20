@@ -45,7 +45,7 @@ are searched. `transcript_embeddings` has no ORM model, so the bridge is
   keyword rather than the behaviour.
 
 Two more rules came with the MCP tools, which call `get_hybrid_search_results` with filters the UI
-never sends (`channels`, `released_from`/`released_to`, a separate `fts_text`):
+never sends (`channels`, `released_from`/`released_to`, `title_contains`, a separate `fts_text`):
 - **New filters belong in `_build_media_conditions`, i.e. in the scope, never in an outer `WHERE`**
   on the search query. Only the scope reaches the `MATERIALIZED` exact path; an outer filter is
   exactly the post-filter that silently returns too few rows. `channels=[]` deliberately matches

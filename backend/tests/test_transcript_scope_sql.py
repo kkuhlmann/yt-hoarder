@@ -72,6 +72,14 @@ def test_channels_expand_and_are_bound_never_inlined():
     assert {'NASA', "O'Brien"} <= set(params.values())
 
 
+def test_title_text_is_bound_never_inlined():
+    sql, params = build_media_scope_subquery(rating_user_id=1, title_contains="x'; DROP TABLE y;--")
+
+    assert 'DROP TABLE' not in sql
+    assert any('DROP TABLE' in str(v) for v in params.values())
+    assert 'media_details.channel' not in sql.split('WHERE', 1)[1]
+
+
 def test_an_empty_channel_list_narrows_to_nothing_rather_than_nothing_filtered():
     # A caller whose channel names all failed to resolve must not get the whole library.
     assert build_media_scope_subquery(rating_user_id=1, channels=[]) is not None

@@ -6,6 +6,7 @@ user sees in the app without admin view: their own media and media shared with t
 
 import difflib
 import logging
+import re
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from math import ceil
@@ -58,6 +59,8 @@ TRANSCRIPT_DEFAULT_WINDOW_SECONDS = 300
 # ~2.8 h of 20 s blocks: one read never needs more, and max_chars stops far sooner.
 TRANSCRIPT_BLOCK_FETCH = 500
 CHANNEL_FUZZY_CUTOFF = 0.75
+# The operators `_build_search_condition` splits on; a value of only these has no terms.
+TITLE_OPERATORS = re.compile(r'&&|\|\|')
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=False)
 
@@ -70,7 +73,7 @@ citations.
 question names a channel or a period, to get exact channel names.
 2. search_transcripts: timestamped passages, best first. Phrase `query` like the passage \
 you hope to find; put exact names or terms in `keywords`. Run several searches with \
-different phrasings for broad questions.
+different phrasings for broad questions. Narrow by video title with `title_contains`.
 3. get_transcript: read around a passage (start a little before its timestamp) to quote \
 it accurately, or read a whole video in pages.
 
@@ -84,7 +87,7 @@ Research my video transcript library to answer the question I ask next.
 
 - Start with library_overview if I mention a channel, a tag or a time period.
 - Run several search_transcripts calls with different phrasings; use keywords for exact \
-names. Narrow with channels and released_from / released_to when I give them.
+names. Narrow with channels, title_contains and released_from / released_to when I give them.
 - Read context with get_transcript before quoting anything ambiguous.
 
 Answer with:
@@ -237,6 +240,16 @@ async def search_transcripts(
         list[str] | None,
         Field(description='Only these channels; close spellings are matched.'),
     ] = None,
+    title_contains: Annotated[
+        str | None,
+        Field(
+            description=(
+                'Only videos whose title contains this text, ignoring case. Use && for '
+                'all of several terms and || for any of them. Matches titles only: '
+                'channels filters by channel, keywords searches what was said.'
+            )
+        ),
+    ] = None,
     tags: Annotated[
         list[str] | None,
         Field(description="Only media with any of these of the user's tags."),
@@ -264,6 +277,10 @@ async def search_transcripts(
         msg = 'query must not be empty.'
         raise ToolError(msg)
     keywords = (keywords or '').strip() or None
+    title_contains = (title_contains or '').strip() or None
+    if title_contains and not any(term.strip() for term in TITLE_OPERATORS.split(title_contains)):
+        msg = 'title_contains has no search terms: give text to find in the title.'
+        raise ToolError(msg)
     limit = max(1, min(SEARCH_MAX_LIMIT, limit))
     if min_rating is not None and not 1 <= min_rating <= 5:
         msg = 'min_rating must be between 1 and 5.'
@@ -280,6 +297,7 @@ async def search_transcripts(
         mode='hybrid' if keywords else 'semantic',
         embedding_model=settings.embedding.model,
         channels=None,
+        title_contains=title_contains,
         tags=None,
         min_rating=min_rating,
         released_from=date_from.date().isoformat() if date_from else None,
@@ -327,6 +345,7 @@ async def search_transcripts(
         released_from=date_from,
         released_to=date_to,
         fts_text=keywords,
+        title_contains=title_contains,
     )
     result, text = build_search_result(
         applied,

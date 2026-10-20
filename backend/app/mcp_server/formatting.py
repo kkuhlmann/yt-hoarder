@@ -86,6 +86,7 @@ class AppliedSearch(BaseModel):
     min_rating: int | None
     released_from: str | None
     released_to: str | None
+    title_contains: str | None = None
     unmatched_channels: list[str] = []
     unmatched_tags: list[str] = []
     notes: list[str] = []
@@ -224,6 +225,8 @@ def _applied_lines(applied: AppliedSearch) -> list[str]:
     filters = []
     if applied.channels is not None:
         filters.append('channels: ' + (', '.join(applied.channels) or 'none matched'))
+    if applied.title_contains:
+        filters.append(f'title contains: {applied.title_contains}')
     if applied.tags is not None:
         filters.append('tags: ' + (', '.join(applied.tags) or 'none matched'))
     if applied.min_rating is not None:

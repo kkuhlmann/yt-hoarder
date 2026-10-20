@@ -198,7 +198,7 @@ across an untrusted network.
 | Tool | What it does |
 |---|---|
 | `library_overview` | Channels, upload-date span and tags, so the agent can pick real channel names and dates |
-| `search_transcripts` | Timestamped passages, best first, filtered by channel, tag, rating and upload-date range. Each result reports exactly what was searched: the semantic phrase, keywords, channels, dates and embedding model |
+| `search_transcripts` | Timestamped passages, best first, filtered by channel, video title, tag, rating and upload-date range. Each result reports exactly what was searched: the semantic phrase, keywords, channels, title, dates and embedding model |
 | `get_transcript` | Reads a video's transcript around a moment, or page by page |
 
 **`public_url` and in-app links.** Every result links both to the source (`youtube.com/…&t=754`) and
