@@ -7,13 +7,19 @@ Each job kind gets a hooks class; the job wrapper invokes:
 """
 
 from logger import logger
-from models import TaskStatus, utc_now
+from models import MediaType, TaskStatus, utc_now
 from orchestrator.error_codes import classify_error
 from progress_publisher import publish_status_change
 from repositories import clips as clips_repo
 from repositories import media_details as md_repo
 from repositories import task_records as tr_repo
 from services.cleanup import cleanup_task_files, delete_file
+from ytdlp.files import (
+    delete_transcript_staging,
+    kept_thumbnail_path,
+    move_thumbnail,
+    staged_thumbnail_path,
+)
 
 ERROR_MESSAGE_MAX_LENGTH = 200
 
@@ -149,7 +155,10 @@ class DownloadHooks(BaseStatusHooks):
             logger.error(f'Task {task_id}: on_success called with invalid retval: {retval}')
             return
 
-        status_msg = 'Download completed'
+        # A transcript-only item has only staged its captions or audio; it is COMPLETE once
+        # TranscriptHooks has its transcript, and has no file for a sprite sheet.
+        transcript_only = retval.get('media_type') == MediaType.TRANSCRIPT
+        status_msg = 'Staged for transcription' if transcript_only else 'Download completed'
         tr_repo.sync_update_one(
             task_id,
             {
@@ -158,15 +167,31 @@ class DownloadHooks(BaseStatusHooks):
                 'percent_complete': 100,
             },
         )
-        md_repo.sync_update_one(
-            retval['id'], {'status': TaskStatus.COMPLETE.value, 'downloaded_at': utc_now()}
-        )
+        if transcript_only:
+            md_repo.sync_update_one(retval['id'], {'status': TaskStatus.POSTPROCESSING.value})
+        else:
+            md_repo.sync_update_one(
+                retval['id'], {'status': TaskStatus.COMPLETE.value, 'downloaded_at': utc_now()}
+            )
         publish_status_change(task_id, TaskStatus.COMPLETE.value, status_msg, user_id=user_id)
 
         # Last on purpose: the row is already COMPLETE and published, so a raise here
         # (absorbed by wrapper._run_hook) costs only the sheet, and startup recovery
         # picks the still-QUEUED sprite row up on the next boot.
-        self._queue_sprite_generation(retval['id'])
+        if not transcript_only:
+            self._queue_sprite_generation(retval['id'])
+
+    @staticmethod
+    def _discard_transcript_staging(args) -> None:
+        """A transcript-only download that ends without a transcript job keeps nothing.
+
+        Its staged files are named by URL hash alone, not '{title} [{hash}]', so
+        cleanup_task_files never matches them.
+        """
+        job = args[0] if args else {}
+        url = job.get('url') or (job.get('media_details') or {}).get('url')
+        if url and job.get('media_type') == MediaType.TRANSCRIPT:
+            delete_transcript_staging(url)
 
     def _queue_sprite_generation(self, media_details_id: int) -> None:
         """Dispatch the sprite row created for this download at populate time.
@@ -187,6 +212,7 @@ class DownloadHooks(BaseStatusHooks):
     def on_failure(self, exc, task_id, args, kwargs, einfo=None):
         super().on_failure(exc, task_id, args, kwargs, einfo)
         tr_repo.sync_mark_downstream_as_failed(task_id)
+        self._discard_transcript_staging(args)
 
     def on_cancel(self, task_id, args):
         # The cancel endpoint already cleaned partial files, but it raced the
@@ -200,6 +226,7 @@ class DownloadHooks(BaseStatusHooks):
             deleted = cleanup_task_files(task_title=title, task_url=url)
             if deleted:
                 logger.info(f'Cleaned up {deleted} partial file(s) for cancelled task {task_id}')
+        self._discard_transcript_staging(args)
 
         # before_start left the row IN_PROGRESS; give it the terminal status the
         # other lifecycle hooks all write, so it doesn't claim to be downloading.
@@ -240,7 +267,12 @@ class TranscriptHooks(StatusHooks):
             self.success_message,
             tr_extra={'percent_complete': 100},
         )
+        self._finish_transcript_only(args, TaskStatus.COMPLETE)
         logger.info(f'Task {task_id} succeeded')
+
+    def on_failure(self, exc, task_id, args, kwargs, einfo=None):
+        super().on_failure(exc, task_id, args, kwargs, einfo)
+        self._finish_transcript_only(args, TaskStatus.FAILED)
 
     def on_cancel(self, task_id, args):
         from repositories import transcript_blocks as tb_repo
@@ -250,6 +282,29 @@ class TranscriptHooks(StatusHooks):
         if media_details_id:
             tb_repo.sync_delete_transcript_block_by_media_details_id(media_details_id)
             logger.info(f'Cleaned up partial transcripts for media_details {media_details_id}')
+        self._finish_transcript_only(args, TaskStatus.CANCELLED)
+
+    @staticmethod
+    def _finish_transcript_only(args, status: TaskStatus) -> None:
+        """End a transcript-only item: nothing it staged outlives its transcript job.
+
+        Not called on retry, which needs the staged captions or audio again.
+        """
+        md = args[0] if args else {}
+        if md.get('media_type') != MediaType.TRANSCRIPT or not md.get('url'):
+            return
+        thumbnail_path = None
+        if status == TaskStatus.COMPLETE:
+            # Before the staging delete below, which would take the staged thumbnail with it.
+            thumbnail_path = move_thumbnail(
+                staged_thumbnail_path(md['url']),
+                kept_thumbnail_path(md['url'], MediaType.TRANSCRIPT),
+            )
+        removed = delete_transcript_staging(md['url'])
+        md_repo.sync_finish_transcript_only(md['url'], status, thumbnail_path=thumbnail_path)
+        logger.info(
+            f'Transcript-only {md["url"]} ended {status.value}; deleted {removed} staged file(s)'
+        )
 
 
 class ClipHooks(StatusHooks):

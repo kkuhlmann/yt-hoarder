@@ -5,7 +5,7 @@ export type SubscriptionType = {
   url: string
   enabled: boolean
   audio_only: boolean
-  media_type: number
+  media_type: string
   string_match: string
   overwrite: boolean
   date_filter: Date
@@ -21,6 +21,7 @@ export type SubscriptionType = {
 export type SubscriptionOptionsType = {
   url: string
   audio_only: boolean
+  transcript_only: boolean
   media_type: string
   string_match?: string
   overwrite: boolean

@@ -25,6 +25,8 @@ export type DeepLinkMedia = {
 type DeepLinkHandlers = {
   onAudio: (media: DeepLinkMedia, seconds: number) => void
   onVideo: (media: DeepLinkMedia, seconds: number) => void
+  /** A transcript-only item: no file to play, so the link opens its transcript. */
+  onTranscript: (media: DeepLinkMedia, seconds: number) => void
   /** Called once the link has been acted on or found unusable, so a remount won't replay it. */
   onHandled: () => void
 }
@@ -71,13 +73,15 @@ export function useDeepLinkPlayback(
       try {
         const media = await loadMedia(deepLink.mediaId, offlineMode, signal)
         if (signal.aborted) return
-        const { onAudio, onVideo } = handlersRef.current
+        const { onAudio, onVideo, onTranscript } = handlersRef.current
         if (!media) {
           toast.error(
             offlineMode
               ? "That video isn't downloaded to this device"
               : "That video isn't in your library"
           )
+        } else if (media.media_type === "TRANSCRIPT" && media.status === "COMPLETE") {
+          onTranscript(media, deepLink.seconds)
         } else if (media.status !== "COMPLETE" || !media.file_path) {
           toast.error("Media file not available")
         } else if (media.media_type === "VIDEO") {

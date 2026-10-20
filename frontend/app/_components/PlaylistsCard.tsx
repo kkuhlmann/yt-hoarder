@@ -399,7 +399,7 @@ export function PlaylistsCard() {
         transition={{ duration: 0.3 }}
       >
         <Card className="mt-4">
-          <CardContent className="pt-6">
+          <CardContent className="pt-3 md:pt-4">
             <InlinePlaylistVideoPlayer
               onReturn={() => setDisplayVideo(false)}
             />

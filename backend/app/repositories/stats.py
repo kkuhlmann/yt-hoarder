@@ -4,11 +4,12 @@ from datetime import timedelta
 from typing import Literal, NamedTuple, get_args
 
 from cachetools import TTLCache
-from sqlalchemy import case, distinct, func, or_
+from sqlalchemy import and_, case, distinct, func, or_
 from sqlmodel import select
 
 from database import db
 from models import (
+    LIBRARY_MEDIA_TYPES,
     Clip,
     ClipAccess,
     MediaAccess,
@@ -33,6 +34,15 @@ from models import (
 # unbounded dict would let any authenticated user grow memory without limit.
 STATS_CACHE_TTL_SECONDS = 300  # 5 minutes
 _cache: TTLCache[str, dict] = TTLCache(maxsize=1024, ttl=STATS_CACHE_TTL_SECONDS)
+
+
+def _complete_library_media():
+    """Finished audio and video. Transcript-only items aren't library media; they count
+    only toward the transcription figures."""
+    return and_(
+        MediaDetails.status == TaskStatus.COMPLETE,
+        MediaDetails.media_type.in_(LIBRARY_MEDIA_TYPES),
+    )
 
 
 def _get_cached(key: str) -> dict | None:
@@ -235,7 +245,7 @@ def _empty_heatmap(start_date: str, end_date: str) -> dict:
 
 async def _query_media_counts(session, f: ResolvedFilters) -> tuple[int, int, int]:
     """Return (total, audio_count, video_count) for complete media."""
-    complete = MediaDetails.status == TaskStatus.COMPLETE
+    complete = _complete_library_media()
 
     total_stmt = _apply_media_filters(
         select(func.count()).select_from(MediaDetails).where(complete), **f.media_kw
@@ -261,7 +271,7 @@ async def _query_media_counts(session, f: ResolvedFilters) -> tuple[int, int, in
 
 async def _query_total_duration(session, f: ResolvedFilters) -> float:
     """Return sum of duration for complete media."""
-    complete = MediaDetails.status == TaskStatus.COMPLETE
+    complete = _complete_library_media()
     stmt = _apply_media_filters(
         select(func.sum(MediaDetails.duration)).where(complete), **f.media_kw
     )
@@ -270,7 +280,7 @@ async def _query_total_duration(session, f: ResolvedFilters) -> float:
 
 async def _query_unique_channels(session, f: ResolvedFilters) -> int:
     """Return count of distinct channels for complete media."""
-    complete = MediaDetails.status == TaskStatus.COMPLETE
+    complete = _complete_library_media()
     stmt = _apply_media_filters(
         select(func.count(distinct(MediaDetails.channel)))
         .where(complete)
@@ -372,7 +382,7 @@ def _build_periods_and_cumulative(bucket_rows, date_fmt: str) -> tuple[list[dict
 
 async def _query_download_buckets(session, granularity: str, f: ResolvedFilters):
     """Query download counts by media type per time bucket."""
-    complete = MediaDetails.status == TaskStatus.COMPLETE
+    complete = _complete_library_media()
     bucket = func.date_trunc(granularity, MediaDetails.downloaded_at).label('bucket')
     stmt = (
         _apply_media_filters(
@@ -389,7 +399,7 @@ async def _query_download_buckets(session, granularity: str, f: ResolvedFilters)
 
 async def _query_top_download_channels(session, f: ResolvedFilters) -> list[str]:
     """Return top 5 channels by download count."""
-    complete = MediaDetails.status == TaskStatus.COMPLETE
+    complete = _complete_library_media()
     stmt = (
         _apply_media_filters(
             select(MediaDetails.channel, func.count().label('cnt')).where(
@@ -409,7 +419,7 @@ async def _query_channel_download_buckets(
 ) -> list[dict]:
     if not top_channels:
         return []
-    complete = MediaDetails.status == TaskStatus.COMPLETE
+    complete = _complete_library_media()
     bucket = func.date_trunc(granularity, MediaDetails.downloaded_at).label('bucket')
     stmt = (
         _apply_media_filters(
@@ -514,7 +524,7 @@ async def get_filter_options(user_id: int | None = None) -> dict:
         return cached
 
     async with db.get_async_session() as session:
-        complete = MediaDetails.status == TaskStatus.COMPLETE
+        complete = _complete_library_media()
         accessible_ids = _accessible_media_subquery(user_id) if user_id is not None else None
 
         chan_stmt = (
@@ -1084,7 +1094,7 @@ async def get_download_activity_heatmap(
         stmt = (
             _apply_media_filters(
                 select(day_col, func.count().label('count')).where(
-                    MediaDetails.status == TaskStatus.COMPLETE,
+                    _complete_library_media(),
                     MediaDetails.downloaded_at.isnot(None),
                     MediaDetails.downloaded_at >= start,
                 ),

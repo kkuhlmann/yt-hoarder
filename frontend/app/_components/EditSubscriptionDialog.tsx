@@ -47,6 +47,7 @@ export function EditSubscriptionDialog({
   const [focusSubscription, setFocusSubscription] =
     useState<SubscriptionType>(DEFAULT_SUBSCRIPTION)
   const [isLoading, setIsLoading] = useState(true)
+  const transcriptOnly = focusSubscription.media_type === "TRANSCRIPT"
 
   const handleOpenConfirmation = () => {
     setOpenConfirmation(!openConfirmation)
@@ -201,21 +202,29 @@ export function EditSubscriptionDialog({
               </div>
 
               <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <Checkbox
-                    id="audio_only_edit"
-                    checked={focusSubscription.audio_only}
-                    onCheckedChange={(checked) =>
-                      handleCheckboxChange("audio_only", checked === true)
-                    }
-                  />
-                  <label
-                    htmlFor="audio_only_edit"
-                    className="text-sm text-text-primary cursor-pointer"
-                  >
-                    Audio Only
-                  </label>
-                </div>
+                {transcriptOnly && (
+                  <p className="text-sm text-text-muted">
+                    Transcript only: indexes each video&apos;s transcript without keeping the
+                    media. The mode is fixed once the subscription exists.
+                  </p>
+                )}
+                {!transcriptOnly && (
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="audio_only_edit"
+                      checked={focusSubscription.audio_only}
+                      onCheckedChange={(checked) =>
+                        handleCheckboxChange("audio_only", checked === true)
+                      }
+                    />
+                    <label
+                      htmlFor="audio_only_edit"
+                      className="text-sm text-text-primary cursor-pointer"
+                    >
+                      Audio Only
+                    </label>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-3">
                   <Checkbox
@@ -233,24 +242,26 @@ export function EditSubscriptionDialog({
                   </label>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <Checkbox
-                    id="generate_transcript_edit"
-                    checked={focusSubscription.generate_transcript}
-                    onCheckedChange={(checked) =>
-                      handleCheckboxChange("generate_transcript", checked === true)
-                    }
-                  />
-                  <label
-                    htmlFor="generate_transcript_edit"
-                    className="text-sm text-text-primary cursor-pointer"
-                  >
-                    Generate Transcript
-                  </label>
-                </div>
+                {!transcriptOnly && (
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="generate_transcript_edit"
+                      checked={focusSubscription.generate_transcript}
+                      onCheckedChange={(checked) =>
+                        handleCheckboxChange("generate_transcript", checked === true)
+                      }
+                    />
+                    <label
+                      htmlFor="generate_transcript_edit"
+                      className="text-sm text-text-primary cursor-pointer"
+                    >
+                      Generate Transcript
+                    </label>
+                  </div>
+                )}
               </div>
 
-              {!focusSubscription.audio_only && (
+              {!transcriptOnly && !focusSubscription.audio_only && (
                 <div className="space-y-1">
                   <label
                     htmlFor="download_quality_edit"
@@ -277,7 +288,7 @@ export function EditSubscriptionDialog({
                   </select>
                 </div>
               )}
-              {focusSubscription.audio_only && (
+              {!transcriptOnly && focusSubscription.audio_only && (
                 <div className="space-y-1">
                   <label
                     htmlFor="audio_quality_edit"

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from config import settings
 from logger import logger
+from ytdlp.files import kept_thumbnails_dir, transcript_staging_dir
 from ytdlp.urls import get_url_hash
 
 SIDECAR_EXTENSIONS = (
@@ -100,6 +101,61 @@ def cleanup_old_temp_files(age_hours: int = 24):
     )
 
     return deleted_count
+
+
+def cleanup_orphaned_transcript_staging(age_hours: int, in_flight_hashes: set[str]) -> int:
+    """Delete staged transcript-only files nothing is waiting for any more.
+
+    TranscriptHooks removes them when a transcript job ends, so these are the leftovers
+    of a crash between staging and that hook. Age alone isn't enough: behind a Whisper
+    backlog a staged file can legitimately wait in the ml lane for longer than a day, so a
+    file whose url hash (its name up to the first dot) belongs to an item still in flight
+    is kept regardless.
+    """
+    staging_dir = Path(transcript_staging_dir())
+    if not staging_dir.is_dir():
+        return 0
+
+    cutoff = time.time() - age_hours * 3600
+    deleted = 0
+    for item in staging_dir.iterdir():
+        if not item.is_file() or item.name.split('.', 1)[0] in in_flight_hashes:
+            continue
+        try:
+            if item.stat().st_mtime < cutoff:
+                item.unlink()
+                logger.info(f'Deleted orphaned transcript staging file: {item}')
+                deleted += 1
+        except OSError as e:
+            logger.warning(f'Failed to delete transcript staging file {item}: {e}')
+    return deleted
+
+
+def cleanup_orphaned_thumbnails(age_hours: int, referenced: set[str]) -> int:
+    """Delete kept thumbnails that no media row points at any more.
+
+    The delete paths remove a thumbnail with its row's last media file or transcript, so
+    these are leftovers of a crash between moving a file and writing its row, or of a row
+    deleted outright. The age guard keeps the sweep off a thumbnail being kept right now,
+    whose row isn't written yet.
+    """
+    thumbnails_dir = Path(kept_thumbnails_dir())
+    if not thumbnails_dir.is_dir():
+        return 0
+
+    cutoff = time.time() - age_hours * 3600
+    deleted = 0
+    for item in thumbnails_dir.iterdir():
+        if not item.is_file() or str(item) in referenced:
+            continue
+        try:
+            if item.stat().st_mtime < cutoff:
+                item.unlink()
+                logger.info(f'Deleted orphaned thumbnail: {item}')
+                deleted += 1
+        except OSError as e:
+            logger.warning(f'Failed to delete thumbnail {item}: {e}')
+    return deleted
 
 
 def cleanup_incomplete_downloads(age_hours: int = 1):

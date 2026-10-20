@@ -1,22 +1,49 @@
 "use client"
 
-import { useState } from "react"
-import { PlayIcon, ArrowsRightLeftIcon, EllipsisVerticalIcon } from "@heroicons/react/20/solid"
+import { PlayIcon, ArrowsRightLeftIcon, PlayPauseIcon } from "@heroicons/react/20/solid"
 import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 
 export type QueueMode = "off" | "ordered" | "shuffled"
 
+type ResumeToggleProps = {
+  checked: boolean
+  disabled?: boolean
+  onChange: (checked: boolean) => void
+  /** What resuming means on this surface; defaults to the player's wording. */
+  title?: string
+}
+
+/**
+ * Resume, as a button that stays pressed: highlighted while on, styled like its neighbours
+ * while off, the same way Play All and Shuffle show a running queue.
+ */
+export function ResumeToggle({ checked, disabled = false, onChange, title }: ResumeToggleProps) {
+  return (
+    <Button
+      variant={checked ? "matrix" : "outline"}
+      size="sm"
+      onClick={() => onChange(!checked)}
+      disabled={disabled}
+      aria-pressed={checked}
+      className="gap-2"
+      title={
+        disabled
+          ? "Play All and Shuffle always start each track from the beginning"
+          : (title ??
+            "Resume each track from where you left off, and show how far through each one you are")
+      }
+    >
+      <PlayPauseIcon className="h-4 w-4" />
+      <span className="hidden sm:inline">Resume</span>
+    </Button>
+  )
+}
+
 type PlaybackControlsProps = {
   onPlayAll: () => void
   onShuffle: () => void
-  resume: {
-    checked: boolean
-    disabled?: boolean
-    onChange: (checked: boolean) => void
-  }
+  resume: ResumeToggleProps
   /**
    * Only the library owns a queue it can detach, so only it has an on/off state to
    * reflect. Where it's absent the two buttons are plain actions, which is what the
@@ -39,7 +66,6 @@ export function PlaybackControls({
   shuffleTitle,
   className,
 }: PlaybackControlsProps) {
-  const [optionsOpen, setOptionsOpen] = useState(false)
   const ordered = queueMode === "ordered"
   const shuffled = queueMode === "shuffled"
 
@@ -83,37 +109,7 @@ export function PlaybackControls({
         <ArrowsRightLeftIcon className="h-4 w-4" />
         <span className="hidden sm:inline">Shuffle</span>
       </Button>
-      <Popover open={optionsOpen} onOpenChange={setOptionsOpen}>
-        <PopoverTrigger asChild>
-          <button
-            className="inline-flex items-center px-1 py-1 rounded-md text-xs font-mono transition-colors bg-bg-surface text-text-muted hover:text-text-secondary border border-border"
-            title="Playback options"
-            aria-label="Playback options"
-          >
-            <EllipsisVerticalIcon className="h-3.5 w-3.5" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-auto p-2">
-          <label
-            className={cn(
-              "flex items-center gap-2 select-none whitespace-nowrap",
-              resume.disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
-            )}
-            title={
-              resume.disabled
-                ? "Play All and Shuffle always start each track from the beginning"
-                : "Resume each track from where you left off, and show how far through each one you are"
-            }
-          >
-            <Switch
-              checked={resume.checked}
-              onCheckedChange={resume.onChange}
-              disabled={resume.disabled}
-            />
-            <span className="font-mono text-xs text-text-secondary">Resume</span>
-          </label>
-        </PopoverContent>
-      </Popover>
+      <ResumeToggle {...resume} />
     </div>
   )
 }

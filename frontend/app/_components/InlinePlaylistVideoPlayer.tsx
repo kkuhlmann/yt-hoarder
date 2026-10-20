@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { VideoPlayer } from "./MediaPlayer"
 import { useMediaPlayer } from "@/app/context/MediaPlayerContext"
 import {
-  ArrowLeftIcon,
   BackwardIcon,
   ForwardIcon,
   ArrowPathIcon,
@@ -18,6 +17,9 @@ import { cn } from "@/lib/utils"
 import { formatDate } from "@/app/utils"
 import { StarRating } from "./StarRating"
 import { useElementDuration } from "@/app/_hooks/useElementDuration"
+import { useMediaTranscript } from "@/app/_hooks/useMediaTranscript"
+import { seekMediaElement } from "@/app/_hooks/useMediaElementTime"
+import { MediaPage } from "@/app/_components/media/MediaPage"
 
 type InlinePlaylistVideoPlayerProps = {
   onReturn: () => void
@@ -60,6 +62,10 @@ export function InlinePlaylistVideoPlayer({
     },
     [measureDuration, videoRefCallback]
   )
+
+  // The transcript follows the queue: it is always the playing track's.
+  const transcript = useMediaTranscript(mediaPlayer.isClip ? null : mediaPlayer.media_details_id)
+  const seek = (seconds: number) => seekMediaElement(videoRef.current, seconds)
 
   const timeRemaining = duration - currentTime
   const showNextUp =
@@ -116,16 +122,13 @@ export function InlinePlaylistVideoPlayer({
     : ""
 
   return (
-    <div className="space-y-4">
-      <Button
-        variant="outline"
-        onClick={handleReturn}
-        className="gap-2"
-      >
-        <ArrowLeftIcon className="h-4 w-4" />
-        {backLabel}
-      </Button>
-
+    <MediaPage
+      transcript={transcript}
+      onReturn={handleReturn}
+      returnLabel={backLabel}
+      currentTime={currentTime}
+      onSeek={seek}
+    >
       <div className="relative">
         <VideoPlayer
           id={mediaPlayer.media_details_id}
@@ -270,6 +273,6 @@ export function InlinePlaylistVideoPlayer({
           )}
         </div>
       )}
-    </div>
+    </MediaPage>
   )
 }

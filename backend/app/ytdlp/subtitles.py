@@ -10,7 +10,18 @@ import json
 import os
 import re
 
+from yt_dlp.utils import DownloadError
+
 from logger import logger
+
+# yt-dlp raises this from _write_subtitles when a listed caption track fails to download
+# (a 429 or 403 from the caption endpoint), before any media bytes move. A video with no
+# track for the requested language raises nothing; it only logs.
+SUBTITLE_DOWNLOAD_ERROR = 'Unable to download video subtitles'
+
+
+def is_subtitle_download_error(e: Exception) -> bool:
+    return isinstance(e, DownloadError) and SUBTITLE_DOWNLOAD_ERROR in str(e)
 
 
 def find_subtitle_file(media_file_path: str) -> str | None:

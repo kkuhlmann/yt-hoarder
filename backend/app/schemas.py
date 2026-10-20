@@ -7,9 +7,22 @@ This module contains:
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from models import AudioQuality, DownloadQuality, JobType, MediaType, TaskStatus
+
+
+def apply_transcript_only_defaults(options) -> None:
+    """Force the options a transcript-only request implies, in place.
+
+    Its Whisper fallback is an audio download, and the whole point is the transcript, so
+    whatever the client sent for audio_only and generate_transcript is overridden. Takes any
+    object carrying those three attributes (a request schema or a Subscription row).
+    """
+    if options.media_type == MediaType.TRANSCRIPT:
+        options.audio_only = True
+        options.generate_transcript = True
+
 
 # --- DTOs for background-job payloads ---
 
@@ -163,6 +176,11 @@ class DownloadRequest(BaseModel):
     generate_transcript: bool = False
     download_quality: DownloadQuality = DownloadQuality.BEST
     audio_quality: AudioQuality = AudioQuality.BEST
+
+    @model_validator(mode='after')
+    def _transcript_only_defaults(self) -> 'DownloadRequest':
+        apply_transcript_only_defaults(self)
+        return self
 
 
 class PlaybackStateUpdate(BaseModel):

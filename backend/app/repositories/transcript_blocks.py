@@ -21,6 +21,17 @@ async def delete_transcript_block_by_media_details_id(media_details_id: int) -> 
         return deleted_count
 
 
+async def has_transcript_blocks(media_details_id: int) -> bool:
+    async with db.get_async_session() as session:
+        stmt = (
+            select(TranscriptBlock.id)
+            .where(TranscriptBlock.media_details_id == media_details_id)
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
+
 async def get_blocks_in_window(
     media_details_id: int, start: float, end: float | None, limit: int
 ) -> list[TranscriptBlock]:
@@ -40,6 +51,18 @@ async def get_blocks_in_window(
             .where(and_(*conditions))
             .order_by(TranscriptBlock.start_time, TranscriptBlock.id)
             .limit(limit)
+        )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+
+async def get_all_blocks(media_details_id: int) -> list[TranscriptBlock]:
+    """Every block of one media, in playback order. Access is the caller's to check."""
+    async with db.get_async_session() as session:
+        stmt = (
+            select(TranscriptBlock)
+            .where(TranscriptBlock.media_details_id == media_details_id)
+            .order_by(TranscriptBlock.start_time, TranscriptBlock.id)
         )
         result = await session.execute(stmt)
         return list(result.scalars().all())

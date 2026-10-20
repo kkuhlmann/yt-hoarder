@@ -10,7 +10,7 @@ from dependencies import (
     get_entity_or_404,
     get_required_user_id,
 )
-from models import TaskStatus, TaskType
+from models import MediaType, TaskStatus, TaskType
 from orchestrator import orch
 from repositories import media_details as md_repo
 from repositories import settings as settings_repo
@@ -24,6 +24,7 @@ from schemas import (
     TaskStats,
 )
 from services.cleanup import cleanup_task_files
+from ytdlp.files import delete_transcript_staging
 
 router = APIRouter()
 
@@ -399,6 +400,13 @@ async def revoke_task(
             transcript_blocks_deleted = await tb_repo.delete_transcript_block_by_media_details_id(
                 media_details.id
             )
+
+    if task_record.media_type == MediaType.TRANSCRIPT and task_record.download_job_url:
+        # A transcript-only item's transcript job may never have started (cancelled while
+        # queued), and then no hook is left to delete what its download staged or to end
+        # the item, which would sit in POSTPROCESSING forever.
+        files_deleted += delete_transcript_staging(task_record.download_job_url)
+        await md_repo.finish_transcript_only(task_record.download_job_url, TaskStatus.CANCELLED)
 
     # Mark downstream tasks as cancelled
     downstream_count = await tr_repo.mark_downstream_as_cancelled(task_id)

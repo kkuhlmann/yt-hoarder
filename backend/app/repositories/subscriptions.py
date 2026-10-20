@@ -3,8 +3,19 @@ from sqlmodel import select
 
 from database import db
 from logger import logger
-from models import DownloadJob, MediaAccess, SourceType, Subscription, SubscriptionAccess
+from models import (
+    DownloadJob,
+    MediaAccess,
+    MediaType,
+    SourceType,
+    Subscription,
+    SubscriptionAccess,
+)
 from repositories.pagination import page_count
+
+_MEDIA_ONLY_SUBSCRIPTION_FIELDS = frozenset(
+    {'audio_only', 'generate_transcript', 'download_quality', 'audio_quality'}
+)
 
 # --- Async functions for FastAPI ---
 
@@ -52,13 +63,14 @@ async def get_subscription_by_id(id: int) -> Subscription | None:
 
 
 async def get_subscription_by_details(
-    url: str, string_match: str | None, audio_only: bool, user_id: int | None
+    url: str, string_match: str | None, media_type: MediaType, user_id: int | None
 ) -> Subscription | None:
     async with db.get_async_session() as session:
-        conditions = [Subscription.url == url, Subscription.user_id == user_id]
-
-        if audio_only:
-            conditions.append(Subscription.audio_only == audio_only)
+        conditions = [
+            Subscription.url == url,
+            Subscription.user_id == user_id,
+            Subscription.media_type == media_type,
+        ]
 
         if string_match and str(string_match).strip() != '':
             conditions.append(func.lower(Subscription.string_match) == func.lower(string_match))
@@ -153,9 +165,19 @@ async def update_subscription(id: int, params: dict) -> Subscription:
             'min_duration_seconds',
             'max_duration_seconds',
         ]
+        # A transcript-only subscription's mode is fixed at creation: these would turn it
+        # into a media subscription without changing what it indexes.
+        if subscription.media_type == MediaType.TRANSCRIPT:
+            allowed_fields = [f for f in allowed_fields if f not in _MEDIA_ONLY_SUBSCRIPTION_FIELDS]
         for field in allowed_fields:
             if field in params:
                 setattr(subscription, field, params[field])
+        # media_type follows audio_only, or downloads of one format land under the other's
+        # media type and the subscription's unique key stops meaning anything.
+        if 'audio_only' in allowed_fields and 'audio_only' in params:
+            subscription.media_type = (
+                MediaType.AUDIO if subscription.audio_only else MediaType.VIDEO
+            )
 
         await session.commit()
         await session.refresh(subscription)

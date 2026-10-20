@@ -3,14 +3,16 @@
 import { useState } from "react"
 import {
   RectangleStackIcon,
+  DocumentTextIcon,
   ForwardIcon,
   TrashIcon,
   ChevronDownIcon,
   CheckIcon,
 } from "@heroicons/react/20/solid"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
+import { TRANSCRIPTS_SCOPE } from "@/app/lib/mediaScope"
 
-export type MediaScope = "COMPLETE" | "SKIPPED" | "DELETED"
+export type MediaScope = "COMPLETE" | typeof TRANSCRIPTS_SCOPE | "SKIPPED" | "DELETED"
 
 type ScopeMeta = {
   label: string
@@ -25,6 +27,11 @@ const SCOPES: Record<MediaScope, ScopeMeta> = {
     icon: RectangleStackIcon,
     triggerClass: "bg-bg-surface text-text-muted hover:text-text-secondary border border-border",
   },
+  TRANSCRIPTS: {
+    label: "Transcripts",
+    icon: DocumentTextIcon,
+    triggerClass: "bg-matrix/10 text-matrix border border-matrix/30",
+  },
   SKIPPED: {
     label: "Skipped",
     icon: ForwardIcon,
@@ -37,7 +44,7 @@ const SCOPES: Record<MediaScope, ScopeMeta> = {
   },
 }
 
-const ORDER: MediaScope[] = ["COMPLETE", "SKIPPED", "DELETED"]
+const ORDER: MediaScope[] = ["COMPLETE", TRANSCRIPTS_SCOPE, "SKIPPED", "DELETED"]
 
 function isScope(value: string): value is MediaScope {
   return value in SCOPES
@@ -71,7 +78,7 @@ export function ScopeSelector({
       <PopoverTrigger asChild>
         <button
           className={`inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-md text-xs font-mono transition-colors ${triggerClass}`}
-          title={`Viewing ${label.toLowerCase()} media`}
+          title={scope === TRANSCRIPTS_SCOPE ? "Viewing everything with a transcript" : `Viewing ${label.toLowerCase()} media`}
         >
           <Icon className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">{label}</span>

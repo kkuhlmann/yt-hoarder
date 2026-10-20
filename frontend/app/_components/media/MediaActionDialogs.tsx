@@ -82,6 +82,7 @@ export function MediaActionDialogs({
 }: MediaActionDialogsProps) {
   const { kind, focusItem, keepTranscripts, setKeepTranscripts, close } = dialogs
   if (!focusItem) return null
+  const transcriptOnly = focusItem.media_type === "TRANSCRIPT"
 
   return (
     <>
@@ -112,19 +113,26 @@ export function MediaActionDialogs({
                 },
                 { label: "Channel:", value: focusItem.channel },
                 { label: "Type:", value: focusItem.media_type },
-                {
-                  label: "File:",
-                  value: getBasename(focusItem.file_path),
-                  valueClassName: "text-text-primary truncate",
-                },
+                ...(transcriptOnly
+                  ? []
+                  : [
+                      {
+                        label: "File:",
+                        value: getBasename(focusItem.file_path),
+                        valueClassName: "text-text-primary truncate",
+                      },
+                    ]),
               ]}
             />
           </div>
-          <KeepTranscriptsCheckbox
-            id="keep-transcripts"
-            checked={keepTranscripts}
-            onChange={setKeepTranscripts}
-          />
+          {/* The transcript is all a transcript-only item is; the server drops it too. */}
+          {!transcriptOnly && (
+            <KeepTranscriptsCheckbox
+              id="keep-transcripts"
+              checked={keepTranscripts}
+              onChange={setKeepTranscripts}
+            />
+          )}
         </ConfirmDialog>
       )}
 

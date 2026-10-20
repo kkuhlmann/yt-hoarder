@@ -1,6 +1,7 @@
 export interface DownloadOptionsType {
   download_playlist: boolean
   audio_only: boolean
+  transcript_only: boolean
   overwrite: boolean
   media_type: number
   url: string
@@ -59,6 +60,7 @@ export type MediaGroup = {
   max_date: string | null
   video_count: number
   audio_count: number
+  transcript_count: number
   sample_media_ids: number[]
 }
 

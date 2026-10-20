@@ -8,6 +8,8 @@ import {
   QUALITY_OPTIONS,
   AUDIO_QUALITY_OPTIONS,
   OptionToggle,
+  TRANSCRIPT_ONLY_HINT,
+  formMediaType,
 } from "./downloadOptions"
 import { isValidSubscriptionUrl } from "../utils"
 import toast from "react-hot-toast"
@@ -85,11 +87,10 @@ export function AddSubscriptionButton({
       return
     }
 
-    const media_type = options.audio_only ? "AUDIO" : "VIDEO"
     axios
       .post(apiUrl("/subscriptions"), {
         ...options,
-        media_type: media_type,
+        media_type: formMediaType(options),
       })
       .then((response) => {
         if (response.status === 201) {
@@ -196,12 +197,22 @@ export function AddSubscriptionButton({
         />
 
         <OptionToggle
-          label="Audio Only"
-          checked={options.audio_only}
+          label="Transcript Only"
+          title={TRANSCRIPT_ONLY_HINT}
+          checked={options.transcript_only}
           onChange={() =>
-            setOptions({ ...options, audio_only: !options.audio_only })
+            setOptions({ ...options, transcript_only: !options.transcript_only })
           }
         />
+        {!options.transcript_only && (
+          <OptionToggle
+            label="Audio Only"
+            checked={options.audio_only}
+            onChange={() =>
+              setOptions({ ...options, audio_only: !options.audio_only })
+            }
+          />
+        )}
         <OptionToggle
           label="Overwrite"
           checked={options.overwrite}
@@ -209,17 +220,19 @@ export function AddSubscriptionButton({
             setOptions({ ...options, overwrite: !options.overwrite })
           }
         />
-        <OptionToggle
-          label="Transcript"
-          checked={options.generate_transcript}
-          onChange={() =>
-            setOptions({
-              ...options,
-              generate_transcript: !options.generate_transcript,
-            })
-          }
-        />
-        {!options.audio_only && (
+        {!options.transcript_only && (
+          <OptionToggle
+            label="Transcript"
+            checked={options.generate_transcript}
+            onChange={() =>
+              setOptions({
+                ...options,
+                generate_transcript: !options.generate_transcript,
+              })
+            }
+          />
+        )}
+        {!options.transcript_only && !options.audio_only && (
           <select
             value={options.download_quality}
             onChange={(e) =>
@@ -234,7 +247,7 @@ export function AddSubscriptionButton({
             ))}
           </select>
         )}
-        {options.audio_only && (
+        {!options.transcript_only && options.audio_only && (
           <select
             value={options.audio_quality}
             onChange={(e) =>

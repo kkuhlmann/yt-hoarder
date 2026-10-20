@@ -293,6 +293,75 @@ async def test_an_empty_channels_list_matches_nothing(library, weight):
 
 
 @pytest.mark.parametrize('weight', WEIGHTS)
+async def test_title_contains_keeps_only_matching_titles(library, weight):
+    hits = await _search(
+        semantic_weight=weight,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        title_contains='ariane',
+    )
+
+    assert _media_ids(hits) == {library.esa_id}
+
+
+@pytest.mark.parametrize('weight', WEIGHTS)
+async def test_title_contains_never_matches_the_channel_name(library, weight):
+    hits = await _search(
+        semantic_weight=weight,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        title_contains='NASA',
+    )
+
+    assert hits == []
+
+
+@pytest.mark.parametrize('weight', WEIGHTS)
+async def test_title_contains_operators_and_or(library, weight):
+    both = await _search(
+        semantic_weight=weight,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        title_contains='lunar && recap',
+    )
+    either = await _search(
+        semantic_weight=weight,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        title_contains='lunar || recap',
+    )
+
+    assert both == []
+    assert _media_ids(either) == {library.nasa_id, library.esa_id}
+
+
+@pytest.mark.parametrize('weight', WEIGHTS)
+async def test_title_contains_combines_with_channels(library, weight):
+    hits = await _search(
+        semantic_weight=weight,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        channels=['NASA'],
+        title_contains='recap',
+    )
+
+    assert hits == []
+
+
+async def test_a_title_filter_is_part_of_the_cache_key(library):
+    kwargs = {
+        'semantic_weight': 1.0,
+        'user_id': library.owner_id,
+        'rating_user_id': library.owner_id,
+    }
+    first = await _search(**kwargs, title_contains='ariane')
+    second = await _search(**kwargs, title_contains='lunar')
+
+    assert _media_ids(first) == {library.esa_id}
+    assert _media_ids(second) == {library.nasa_id}
+
+
+@pytest.mark.parametrize('weight', WEIGHTS)
 async def test_release_range_is_inclusive_of_from_and_exclusive_of_to(library, weight):
     hits = await _search(
         semantic_weight=weight,

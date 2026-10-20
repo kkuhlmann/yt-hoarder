@@ -8,6 +8,7 @@ afterEach(cleanup)
 describe("ScopeSelector", () => {
   it.each([
     ["COMPLETE", "Library"],
+    ["TRANSCRIPTS", "Transcripts"],
     ["SKIPPED", "Skipped"],
     ["DELETED", "Deleted"],
   ])("labels %s as %s", (value, label) => {

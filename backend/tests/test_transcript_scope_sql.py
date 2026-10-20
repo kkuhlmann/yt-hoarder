@@ -72,6 +72,14 @@ def test_channels_expand_and_are_bound_never_inlined():
     assert {'NASA', "O'Brien"} <= set(params.values())
 
 
+def test_title_text_is_bound_never_inlined():
+    sql, params = build_media_scope_subquery(rating_user_id=1, title_contains="x'; DROP TABLE y;--")
+
+    assert 'DROP TABLE' not in sql
+    assert any('DROP TABLE' in str(v) for v in params.values())
+    assert 'media_details.channel' not in sql.split('WHERE', 1)[1]
+
+
 def test_an_empty_channel_list_narrows_to_nothing_rather_than_nothing_filtered():
     # A caller whose channel names all failed to resolve must not get the whole library.
     assert build_media_scope_subquery(rating_user_id=1, channels=[]) is not None
@@ -88,10 +96,12 @@ def test_include_owned_widens_access_to_owned_media():
     without, _ = build_media_scope_subquery(user_id=5, rating_user_id=5)
     with_owned, _ = build_media_scope_subquery(user_id=5, rating_user_id=5, include_owned=True)
 
-    assert 'owner_id' not in without
+    # The listed row's own owner_id. The supersede condition reads the full-media row's
+    # owner too, but through an alias (media_details_1), which this deliberately skips.
+    assert 'media_details.owner_id' not in without
     # A soft delete drops every media_access row, the owner's included, so the
     # access subquery alone would hide an owner's own kept transcripts.
-    assert 'owner_id' in with_owned
+    assert 'media_details.owner_id' in with_owned
 
 
 def test_scoped_vector_cte_is_materialized():

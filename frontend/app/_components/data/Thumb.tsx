@@ -1,13 +1,14 @@
 "use client"
 
 import { useState } from "react"
-import { FilmIcon, MusicalNoteIcon } from "@heroicons/react/20/solid"
+import { DocumentTextIcon, FilmIcon, MusicalNoteIcon } from "@heroicons/react/20/solid"
 
 import { apiUrl } from "@/app/lib/api"
 import { mediaApi } from "@/app/lib/mediaApi"
 
 export function ThumbPlaceholder({ mediaType }: { mediaType?: string }) {
-  const Icon = mediaType === "AUDIO" ? MusicalNoteIcon : FilmIcon
+  const Icon =
+    mediaType === "AUDIO" ? MusicalNoteIcon : mediaType === "TRANSCRIPT" ? DocumentTextIcon : FilmIcon
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-linear-to-br from-bg-surface to-bg-base">
       <Icon className="h-10 w-10 text-text-muted/40" />

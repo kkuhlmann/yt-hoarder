@@ -45,7 +45,7 @@ are searched. `transcript_embeddings` has no ORM model, so the bridge is
   keyword rather than the behaviour.
 
 Two more rules came with the MCP tools, which call `get_hybrid_search_results` with filters the UI
-never sends (`channels`, `released_from`/`released_to`, a separate `fts_text`):
+never sends (`channels`, `released_from`/`released_to`, `title_contains`, a separate `fts_text`):
 - **New filters belong in `_build_media_conditions`, i.e. in the scope, never in an outer `WHERE`**
   on the search query. Only the scope reaches the `MATERIALIZED` exact path; an outer filter is
   exactly the post-filter that silently returns too few rows. `channels=[]` deliberately matches
@@ -53,6 +53,41 @@ never sends (`channels`, `released_from`/`released_to`, a separate `fts_text`):
 - **`semantic_cache`'s key is a hand-written tuple: every parameter that changes the result must be
   in it**, or a call differing only in that parameter is served another call's hits. The cache also
   returns its own list object, so callers must copy, never annotate hits in place.
+
+## Transcript-only media in queries
+
+Why `TRANSCRIPT` is a media type, and the supersede rule's purpose, are in the root `AGENTS.md`. How
+the queries carry it:
+
+- **`_build_media_conditions` takes `media_types` and `has_transcript`.**
+  - The list, `/groups` and `/stats` routers default `media_types` to `LIBRARY_MEDIA_TYPES` through
+    `_media_types_filter`. The transcript search scope and MCP pass none, so transcript-only rows stay
+    searchable. Don't default it inside the builder, or search loses them.
+  - `has_transcript=true` is the Transcripts view: every status, with `include_owned`, so owner-kept
+    DELETED transcripts show — the same widened access the search scope uses.
+- **`_not_superseded_condition` joins every *user-scoped* query** (list, groups, stats, the search
+  scope).
+  - It reads the full row's `owner_id` through an alias (`media_details_1`).
+    `test_include_owned_widens_access_to_owned_media` therefore asserts on `media_details.owner_id`
+    specifically, not on any `owner_id`.
+  - The admin all-users view (`user_id` None) deliberately skips it. That keeps the unscoped search
+    SQL byte-identical, so it stays on the HNSW index path, and that view shows both rows.
+  - Its batched form for the subscription filter is `sync_get_urls_with_full_transcript`; the router's
+    single-URL check is `has_full_transcript`. All three must agree on what counts: a non-TRANSCRIPT
+    row with transcript blocks that the user can see, by owner or `MediaAccess`.
+- **A thumbnail lives as long as the media file or the transcript does.** One with no file left
+  is kept under `{audio_path}/.thumbnails/`, named by `kept_thumbnail_path(url, media_type)` — the
+  same key as `uq_media_details_url_type`, so a deleted video and a transcript-only item of one URL
+  never share a file. The paths that enforce it:
+  - A soft delete keeping a transcript that exists *moves* the sidecar there before
+    `delete_file(..., cleanup_sidecars=True)` would take it. Any other soft delete deletes it.
+  - `DELETE /{id}/transcripts` on a row with no `file_path` deletes it, and so does a hard delete.
+  - `cleanup_orphaned_thumbnails` sweeps old files no `thumbnail_path` references: a crash between
+    a move and its row write, or a row deleted by URL.
+- **Library stats leave transcript-only items out** (`_complete_library_media()` in
+  `repositories/stats.py`). The transcription-coverage figures keep every `COMPLETE` row, because
+  transcript-only items are in their numerator, and dropping them from the denominator alone could
+  push coverage past 100%.
 
 ## Embeddings (`services/embeddings.py`)
 

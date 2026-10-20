@@ -30,6 +30,15 @@ type SubscriptionsTableProps = {
   setSubscriptions: Dispatch<SetStateAction<SubscriptionType[]>>
 }
 
+const isTranscriptOnly = (sub: SubscriptionType) => sub.media_type === "TRANSCRIPT"
+
+const subscriptionQuality = (sub: SubscriptionType) =>
+  isTranscriptOnly(sub)
+    ? "--"
+    : sub.audio_only
+      ? qualityLabel(sub.audio_quality, true)
+      : qualityLabel(sub.download_quality, false)
+
 const BooleanIndicator = ({ value }: { value: boolean }) =>
   value ? (
     <CheckIcon className="h-4 w-4 text-matrix" />
@@ -71,7 +80,11 @@ export function SubscriptionsTable({
       key: "offlineSync",
       title: "Keep offline",
       icon: ArrowPathIcon,
-      render: (sub) => <CollectionOfflineButton source={subscriptionSource(sub.id)} />,
+      // A transcript-only subscription keeps no media, so there is nothing to sync.
+      render: (sub) =>
+        isTranscriptOnly(sub) ? null : (
+          <CollectionOfflineButton source={subscriptionSource(sub.id)} />
+        ),
     },
     {
       key: "share",
@@ -171,15 +184,10 @@ export function SubscriptionsTable({
       breakpoint: "md",
       mobile: "meta",
       mobileOrder: 1,
-      renderMobile: (sub) =>
-        sub.audio_only
-          ? qualityLabel(sub.audio_quality, true)
-          : qualityLabel(sub.download_quality, false),
+      renderMobile: (sub) => subscriptionQuality(sub),
       render: (sub) => (
         <span className="text-xs md:text-sm text-text-secondary font-mono">
-          {sub.audio_only
-            ? qualityLabel(sub.audio_quality, true)
-            : qualityLabel(sub.download_quality, false)}
+          {subscriptionQuality(sub)}
         </span>
       ),
     },

@@ -1,3 +1,4 @@
+import contextlib
 import os
 from datetime import timedelta
 
@@ -8,6 +9,7 @@ from logger import logger
 from models import (
     JobType,
     MediaDetails,
+    MediaType,
     TaskStatus,
     utc_now,
 )
@@ -26,7 +28,16 @@ from serializers import (
 )
 from utils import sanitize_folder_name
 from ytdlp.cookies import cookie_session
-from ytdlp.files import download_thumbnail, find_existing_file
+from ytdlp.files import (
+    TRANSCRIPT_STAGING_DIRNAME,
+    download_thumbnail,
+    find_existing_file,
+    find_staged_audio,
+    save_thumbnail,
+    staged_thumbnail_path,
+    thumbnail_source_url,
+    transcript_staging_base,
+)
 from ytdlp.info import build_not_ready_message, is_video_ready_for_download
 from ytdlp.options import (
     YtPostProcessor,
@@ -36,6 +47,7 @@ from ytdlp.options import (
     download_quality_to_ytdlp,
 )
 from ytdlp.playlists import is_repeat_download
+from ytdlp.subtitles import find_subtitle_file, is_subtitle_download_error, parse_subtitle_file
 from ytdlp.urls import get_url_hash
 
 SUBTITLE_EXTENSIONS = (
@@ -518,6 +530,25 @@ def _handle_quota_exceeded(
     raise SkipJob
 
 
+def _next_attempt(
+    e: DownloadError, dto: DownloadJobDTO, *, use_fallback_format: bool, with_subtitles: bool
+) -> tuple[bool, bool]:
+    """The (use_fallback_format, with_subtitles) to re-run with after `e`, else re-raise it.
+
+    Each fallback is taken at most once, so a download makes at most three attempts.
+    """
+    if with_subtitles and is_subtitle_download_error(e):
+        logger.warning(
+            f'Captions failed to download for {dto.url}; retrying without them, '
+            f'so the transcript falls back to Whisper: {e}'
+        )
+        return use_fallback_format, False
+    if not use_fallback_format and _is_format_not_available_error(e):
+        logger.warning(f'Format not available, retrying with fallback: {e}')
+        return True, with_subtitles
+    raise e
+
+
 def _download_with_fallback(
     ydl: YoutubeDL,
     ydl_opts: dict,
@@ -530,11 +561,13 @@ def _download_with_fallback(
     *,
     cookie_file: str | None,
 ) -> None:
-    """Download using extracted info, falling back to a different format on failure.
+    """Download using extracted info, re-running with fallback options on failure.
 
     First attempts process_ie_result (reuses already-extracted info, avoids a second
-    network call). If the requested format isn't available, creates a fresh YoutubeDL
-    with fallback format options and retries via full download.
+    network call). Two failures are recoverable, each by a fresh YoutubeDL and a full
+    download: a requested format that isn't available (fallback format + FFmpeg
+    conversion), and a caption track that failed to download (no subtitles, so the
+    transcript job uses Whisper instead).
 
     Args:
         ydl: The primary YoutubeDL instance
@@ -551,28 +584,38 @@ def _download_with_fallback(
     try:
         ydl.process_ie_result(download_info, download=True)
     except DownloadError as e:
-        if _is_format_not_available_error(e):
-            # This needs a fresh YoutubeDL instance with different format options.
-            logger.warning(f'Format not available, retrying with fallback: {e}')
-            md_dto = dto.media_details
-            ydl_opts_fallback = create_ydl_options(
-                dto,
-                quality=download_quality_to_ytdlp(dto.download_quality),
-                audio_abr_cap=audio_quality_to_abr_cap(dto.audio_quality),
-                sub_directory=sub_directory,
-                extract_flat=False,
-                use_fallback_format=True,
-                cookie_file=cookie_file,
-            )
-            ydl_opts_fallback['outtmpl'] = ydl_opts['outtmpl']
-            ydl_opts_fallback['progress_hooks'] = [progress_hook]
-            ydl_opts_fallback['postprocessor_hooks'] = [pp_hook]
-            with YoutubeDL(ydl_opts_fallback) as ydl_fb:
+        use_fallback_format, with_subtitles = _next_attempt(
+            e, dto, use_fallback_format=False, with_subtitles=True
+        )
+    else:
+        return
+
+    md_dto = dto.media_details
+    while True:
+        ydl_opts_retry = create_ydl_options(
+            dto,
+            quality=download_quality_to_ytdlp(dto.download_quality),
+            audio_abr_cap=audio_quality_to_abr_cap(dto.audio_quality),
+            sub_directory=sub_directory,
+            extract_flat=False,
+            use_fallback_format=use_fallback_format,
+            cookie_file=cookie_file,
+            with_subtitles=with_subtitles,
+        )
+        ydl_opts_retry['outtmpl'] = ydl_opts['outtmpl']
+        ydl_opts_retry['progress_hooks'] = [progress_hook]
+        ydl_opts_retry['postprocessor_hooks'] = [pp_hook]
+        try:
+            with YoutubeDL(ydl_opts_retry) as ydl_retry:
                 if md_orm:
-                    ydl_fb.add_post_processor(YtPostProcessor(md_orm.id))
-                ydl_fb.download([md_dto.url if md_dto else dto.url])
+                    ydl_retry.add_post_processor(YtPostProcessor(md_orm.id))
+                ydl_retry.download([md_dto.url if md_dto else dto.url])
+        except DownloadError as e:
+            use_fallback_format, with_subtitles = _next_attempt(
+                e, dto, use_fallback_format=use_fallback_format, with_subtitles=with_subtitles
+            )
         else:
-            raise
+            return
 
 
 def _post_download_update(dto: DownloadJobDTO, download_info: dict | None) -> dict:
@@ -599,7 +642,9 @@ def _post_download_update(dto: DownloadJobDTO, download_info: dict | None) -> di
             if dur is not None:
                 md_repo.sync_update_one(updated_md.id, {'duration': dur})
                 updated_md = md_repo.sync_get_media_details_by_id(updated_md.id)
-        if updated_md and updated_md.file_path:
+        if updated_md and updated_md.media_type == MediaType.TRANSCRIPT:
+            _stage_transcript_thumbnail(updated_md.url, download_info)
+        elif updated_md and updated_md.file_path:
             # Download thumbnail as sidecar file (non-critical — failures are logged and ignored)
             thumbnail_url = download_info.get('thumbnail') if download_info else None
             if thumbnail_url:
@@ -612,6 +657,16 @@ def _post_download_update(dto: DownloadJobDTO, download_info: dict | None) -> di
 
     # Fallback to original DTO if no media_details
     return serialize_download_job(dto).get('media_details') or {}
+
+
+def _stage_transcript_thumbnail(url: str, download_info: dict | None) -> None:
+    """Stage a transcript-only item's thumbnail; TranscriptHooks keeps it once the transcript lands."""
+    staged = staged_thumbnail_path(url)
+    if os.path.isfile(staged):
+        return
+    source = thumbnail_source_url(url, download_info)
+    if source:
+        save_thumbnail(source, staged)
 
 
 def _check_repeat_download(dto: DownloadJobDTO) -> bool:
@@ -672,6 +727,106 @@ def _check_file_exists_on_disk(dto: DownloadJobDTO, outtmpl: str) -> tuple[str |
     return existing_file, should_skip_transcript
 
 
+def _staged_captions(url: str) -> str | None:
+    """The staged caption file of a transcript-only item, if it holds a usable transcript.
+
+    An unusable one (empty, or a format the parser can't read) is deleted, so the
+    transcript job can't pick it up instead of the Whisper audio staged in its place.
+    """
+    path = find_subtitle_file(transcript_staging_base(url))
+    if path is None:
+        return None
+    if parse_subtitle_file(path):
+        return path
+    logger.warning(f'Staged captions at {path} hold no usable transcript; discarding them')
+    with contextlib.suppress(OSError):
+        os.remove(path)
+    return None
+
+
+def _transcript_only_ydl_options(
+    dto: DownloadJobDTO, progress_hook, pp_hook, *, cookie_file: str | None, captions_only: bool
+) -> dict:
+    ydl_opts = create_ydl_options(
+        dto,
+        sub_directory=TRANSCRIPT_STAGING_DIRNAME,
+        extract_flat=False,
+        cookie_file=cookie_file,
+        captions_only=captions_only,
+    )
+    ydl_opts['outtmpl'] = f'{transcript_staging_base(dto.url)}.%(ext)s'
+    ydl_opts['progress_hooks'] = [progress_hook]
+    ydl_opts['postprocessor_hooks'] = [pp_hook]
+    return ydl_opts
+
+
+def _run_transcript_only(
+    ctx: JobContext, task_id: str, dto: DownloadJobDTO, progress_hook, pp_hook
+) -> dict:
+    """Stage what the transcript job needs for a transcript-only item: captions, else audio.
+
+    Runs no ML itself; the downstream transcript job builds and embeds the transcript on
+    the ml lane like any other, and its hooks delete everything staged here. Captions are
+    tried first unless force_whisper_transcription is on. Anything short of a usable
+    caption file (no track, a failed fetch, an unparseable file) falls back to downloading
+    the smallest audio stream for Whisper, recorded as the row's file_path so a transcript
+    job rebuilt by startup recovery still finds it.
+    """
+    md_dto = dto.media_details
+    md_orm = md_repo.sync_get_media_details_by_id(md_dto.id) if md_dto and md_dto.id else None
+
+    # A previous attempt may already have staged what this one would fetch.
+    staged_audio = find_staged_audio(dto.url)
+    if staged_audio or _staged_captions(dto.url):
+        logger.info(f'Transcript-only {dto.url}: reusing what an earlier attempt staged')
+        if staged_audio and md_orm:
+            md_repo.sync_update_by_id(md_orm.id, file_path=staged_audio)
+        return _post_download_update(dto, None)
+
+    _rate_limit_sleep(ctx, task_id, dto)
+
+    captions_only = not settings_repo.sync_get_settings().force_whisper_transcription
+    with cookie_session(is_retry=ctx.attempt > 0) as cookie_file:
+        ydl_opts = _transcript_only_ydl_options(
+            dto, progress_hook, pp_hook, cookie_file=cookie_file, captions_only=captions_only
+        )
+        with YoutubeDL(ydl_opts) as ydl:
+            if md_orm and not captions_only:
+                ydl.add_post_processor(YtPostProcessor(md_orm.id))
+            download_info = ydl.extract_info(dto.url, download=False)
+
+            is_ready, reason = is_video_ready_for_download(download_info)
+            if not is_ready:
+                ctx.skip_downstream = True
+                return _handle_video_not_ready(task_id, dto, reason)
+
+            if not captions_only:
+                ydl.process_ie_result(download_info, download=True)
+                return _post_download_update(dto, download_info)
+
+            try:
+                ydl.process_ie_result(download_info, download=True)
+            except DownloadError as e:
+                if not is_subtitle_download_error(e):
+                    raise
+                logger.warning(f'Captions failed to download for {dto.url}: {e}')
+
+        if _staged_captions(dto.url):
+            logger.info(f'Transcript-only {dto.url}: staged YouTube captions')
+            return _post_download_update(dto, download_info)
+
+        logger.warning(f'No usable YouTube captions for {dto.url}; downloading audio for Whisper')
+        audio_opts = _transcript_only_ydl_options(
+            dto, progress_hook, pp_hook, cookie_file=cookie_file, captions_only=False
+        )
+        with YoutubeDL(audio_opts) as ydl_audio:
+            if md_orm:
+                ydl_audio.add_post_processor(YtPostProcessor(md_orm.id))
+            ydl_audio.download([md_dto.url if md_dto else dto.url])
+
+    return _post_download_update(dto, download_info)
+
+
 def run_download_job(ctx: JobContext, dl_job: dict) -> dict:  # noqa: C901 — the download state machine; branches are distinct terminal outcomes
     """Download one video/audio via yt-dlp."""
     task_id = ctx.task_id
@@ -715,6 +870,9 @@ def run_download_job(ctx: JobContext, dl_job: dict) -> dict:  # noqa: C901 — t
                 task_id, 'Skipped - media was already downloaded'
             )
             return serialize_download_job(dto).get('media_details') or {}
+
+        if dto.media_type == MediaType.TRANSCRIPT:
+            return _run_transcript_only(ctx, task_id, dto, progress_hook, pp_hook)
 
         with cookie_session(is_retry=ctx.attempt > 0) as cookie_file:
             ydl_opts = _build_download_options(

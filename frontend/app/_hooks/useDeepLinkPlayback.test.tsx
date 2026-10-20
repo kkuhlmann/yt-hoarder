@@ -39,7 +39,12 @@ afterEach(() => {
 })
 
 function setup(deepLink: { mediaId: number; seconds: number } | null, offlineMode = false) {
-  const handlers = { onAudio: vi.fn(), onVideo: vi.fn(), onHandled: vi.fn() }
+  const handlers = {
+    onAudio: vi.fn(),
+    onVideo: vi.fn(),
+    onTranscript: vi.fn(),
+    onHandled: vi.fn(),
+  }
   renderHook(() => useDeepLinkPlayback(deepLink, offlineMode, handlers))
   return handlers
 }
@@ -62,6 +67,16 @@ describe("useDeepLinkPlayback", () => {
 
     await waitFor(() => expect(handlers.onHandled).toHaveBeenCalledOnce())
     expect(handlers.onAudio).toHaveBeenCalledWith(audio, 30)
+  })
+
+  it("opens a transcript-only item's transcript, since it has no file", async () => {
+    const transcript = { ...VIDEO, media_type: "TRANSCRIPT", file_path: null }
+    get.mockResolvedValue({ data: transcript })
+    const handlers = setup({ mediaId: 12, seconds: 42 })
+
+    await waitFor(() => expect(handlers.onHandled).toHaveBeenCalledOnce())
+    expect(handlers.onTranscript).toHaveBeenCalledWith(transcript, 42)
+    expect(toastError).not.toHaveBeenCalled()
   })
 
   it("says so when the media is missing or not shared with the user", async () => {

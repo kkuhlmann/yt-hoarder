@@ -49,10 +49,11 @@ def seed_media(
     status: str = TaskStatus.COMPLETE.value,
     grant_access_to: int | None = None,
     embedding_value: float = 0.05,
+    media_type: MediaType = MediaType.VIDEO,
 ) -> int:
     media = MediaDetails(
         url=url,
-        media_type=MediaType.VIDEO,
+        media_type=media_type,
         channel=channel,
         title=title,
         status=status,

@@ -13,6 +13,7 @@ import { useView } from "@/app/context/ViewContext"
 import axios from "axios"
 import { apiUrl, fetchPage, searchParam } from "@/app/lib/api"
 import { mediaApi } from "@/app/lib/mediaApi"
+import { scopeParams } from "@/app/lib/mediaScope"
 import { groupFilterParams } from "@/app/lib/groupFilter"
 import { parseDeepLink, stripDeepLink, type DeepLink } from "@/app/lib/deepLink"
 import { fetchOfflineLibrary, fetchOfflineStats } from "@/app/lib/offlineLibrary"
@@ -48,11 +49,13 @@ import {
   ArrowsRightLeftIcon,
   ChevronDownIcon,
   ChevronUpIcon,
+  DocumentTextIcon,
 } from "@heroicons/react/20/solid"
 
 const INITIAL_SUBSCRIPTION_OPTIONS = {
   audio_only: false,
   overwrite: false,
+  transcript_only: false,
   media_type: "0",
   url: "",
   generate_transcript: false,
@@ -129,6 +132,19 @@ export default function HomePage() {
     rateMedia,
     nextTrack,
   } = useMediaPlayer()
+
+  // The bottom bar's <audio> and whether the audio page (DownloadsCard) is open: both
+  // live here because the bar, which sits outside every view, can open that page.
+  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null)
+  const [audioPageOpen, setAudioPageOpen] = useState(false)
+  const openAudioPage = () => {
+    setView("downloads")
+    setAudioPageOpen(true)
+  }
+  const closeAudio = () => {
+    closeAudioPlayer()
+    setAudioPageOpen(false)
+  }
 
   // Queue navigation state, shared by the footer buttons and the OS lock-screen
   // controls so the two can't disagree about what's available.
@@ -259,7 +275,7 @@ export default function HomePage() {
 
       const params: Record<string, any> = {
         search: searchParam(search),
-        status: status,
+        ...scopeParams(status),
         page: pageNumber,
         sort_by: sortBy,
         sort_direction: sortDirection,
@@ -347,7 +363,7 @@ export default function HomePage() {
 
     return axios
       .get(apiUrl(mediaApi.stats), {
-        params: { search: searchParam(search), status, ...adminParam },
+        params: { search: searchParam(search), ...scopeParams(status), ...adminParam },
       })
       .then((response) => response.data)
       .catch((error) => {
@@ -395,6 +411,9 @@ export default function HomePage() {
                     setSemanticWeight={setSemanticWeight}
                     deepLink={deepLink}
                     onDeepLinkHandled={clearDeepLink}
+                    audioElement={audioElement}
+                    audioPageOpen={audioPageOpen}
+                    onAudioPageChange={setAudioPageOpen}
                   />
                 </motion.div>
               ) : view === "subscriptions" && offlineMode ? (
@@ -581,11 +600,23 @@ export default function HomePage() {
                       <ChevronDownIcon className="h-4 w-4" />
                     )}
                   </Button>
+                  {!offlineMode && !audioPlayer.isClip && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={openAudioPage}
+                      className="h-8 w-8 shrink-0 text-text-muted sm:hidden"
+                      title="Open this track's page and transcript"
+                      aria-label="Open this track's page and transcript"
+                    >
+                      <DocumentTextIcon className="h-4 w-4" />
+                    </Button>
+                  )}
                   {/* Close button inline on mobile */}
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => closeAudioPlayer()}
+                    onClick={closeAudio}
                     className="shrink-0 sm:hidden"
                   >
                     Close
@@ -655,6 +686,7 @@ export default function HomePage() {
                     onCycleVisualizer={cycleVisualizer}
                     analyserHandleRef={analyserHandleRef}
                     queue={mediaSessionQueue}
+                    onElement={setAudioElement}
                     onEnded={() => {
                       if (
                         audioPlayer.autoplayEnabled &&
@@ -666,11 +698,23 @@ export default function HomePage() {
                   />
                 </div>
 
+                {!offlineMode && !audioPlayer.isClip && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={openAudioPage}
+                    className="shrink-0 hidden sm:inline-flex gap-1.5"
+                    title="Open this track's page and transcript"
+                  >
+                    <DocumentTextIcon className="h-4 w-4" />
+                    Transcript
+                  </Button>
+                )}
                 {/* Close Button - desktop only */}
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => closeAudioPlayer()}
+                  onClick={closeAudio}
                   className="shrink-0 hidden sm:inline-flex"
                 >
                   Close

@@ -13,7 +13,7 @@ from dependencies import (
     get_required_user_id,
 )
 from logger import logger
-from models import SourceType, TaskRecord, TaskStatus, TaskType
+from models import LIBRARY_MEDIA_TYPES, MediaType, SourceType, TaskRecord, TaskStatus, TaskType
 from orchestrator import TRANSCRIPT_JOB, JobSpec, orch
 from progress_publisher import publish_status_change
 from repositories import media_access as ma_repo
@@ -40,8 +40,20 @@ from serializers import media_details_to_dto, serialize_media_details
 from services.embeddings import OnnxEmbedder
 from services.transcript import get_hybrid_search_results
 from utils import get_model
+from ytdlp.files import delete_thumbnail
+from ytdlp.urls import youtube_video_id
 
 router = APIRouter()
+
+
+def _media_types_filter(media_type: MediaType | None, has_transcript: bool) -> list | None:
+    """The library lists only AUDIO/VIDEO unless a type is asked for by name. The
+    Transcripts view (has_transcript) spans every type, as the transcript search does."""
+    if media_type is not None:
+        return [media_type]
+    if has_transcript:
+        return None
+    return list(LIBRARY_MEDIA_TYPES)
 
 
 def _parse_tag_ids(tag_ids: str | None) -> list[int] | None:
@@ -62,16 +74,28 @@ def _parse_tag_ids(tag_ids: str | None) -> list[int] | None:
 async def get_media_stats(
     search: str | None = None,
     status: str | None = None,
+    media_type: MediaType | None = None,
+    has_transcript: bool = False,
     effective_user_id: int | None = Depends(get_effective_user_id),
 ):
     """Get media library statistics, optionally filtered by search and status.
+
+    Counts only audio and video unless `media_type` names a type. `has_transcript=true`
+    counts the Transcripts view instead: everything with a transcript, of any type and
+    status, including transcript-only items.
 
     Returns counts for:
     - total_downloads: count of matching MediaDetails
     - total_transcript_blocks: total transcript blocks for matching media
     - downloads_with_transcripts: matching downloads with at least one transcript block
     """
-    stats = await md_repo.get_media_stats(search=search, status=status, user_id=effective_user_id)
+    stats = await md_repo.get_media_stats(
+        search=search,
+        status=status,
+        user_id=effective_user_id,
+        media_types=_media_types_filter(media_type, has_transcript),
+        has_transcript=has_transcript,
+    )
     return MediaStats(**stats)
 
 
@@ -100,6 +124,8 @@ async def get_media_groups_endpoint(
     min_rating: int | None = None,
     page: int = 1,
     page_size: int = 60,
+    media_type: MediaType | None = None,
+    has_transcript: bool = False,
     user_id: int = Depends(get_required_user_id),
     effective_user_id: int | None = Depends(get_effective_user_id),
 ):
@@ -107,7 +133,8 @@ async def get_media_groups_endpoint(
 
     group_by: 'channel' | 'tag' | 'downloaded' | 'released'. Date dimensions use
     level ('year' | 'month'); 'month' requires parent=<year>. Respects the same
-    search/tag/rating/access filters as the media list endpoint.
+    search/tag/rating/access/type filters as the media list endpoint, including
+    `has_transcript=true` for the Transcripts view's folders.
     """
 
     parsed_tag_ids = _parse_tag_ids(tag_ids)
@@ -125,6 +152,8 @@ async def get_media_groups_endpoint(
             rating_user_id=user_id,
             page=page,
             page_size=page_size,
+            media_types=_media_types_filter(media_type, has_transcript),
+            has_transcript=has_transcript,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -155,6 +184,69 @@ async def get_one_media_details(
 
 
 @router.get(
+    '/{id}/transcript',
+    status_code=status.HTTP_200_OK,
+    response_description='The full transcript of one media item',
+)
+async def get_media_transcript(
+    user_id: int = Depends(get_required_user_id),
+    media_details=Depends(get_accessible_media_details),
+):
+    """The whole transcript of an item the caller can see, for the media page.
+
+    `media.playable` says whether the app holds a file it can stream from
+    `/media/{id}`; when it doesn't (transcript-only items, deleted media that kept its
+    transcript), `youtube_id` is the video to embed instead, or null for a source that
+    isn't YouTube. `media.rating`, `media.access_count` and `media.playback_position`
+    (where the caller left off, null if never played) are the caller's own.
+    `media.transcript_task_status` / `transcript_task_progress` describe the latest
+    transcription job, null if none ran; with `owner_id` they say whether the caller may
+    start one (owner or admin, via `POST /media-details/transcripts/{id}/create`).
+    `blocks` are in playback order, times in seconds.
+    """
+    blocks = await tb_repo.get_all_blocks(media_details.id)
+    ratings = await ratings_repo.get_ratings_for_media_ids(user_id, [media_details.id])
+    playback = await ps_repo.get_playback_state(user_id, media_details.id)
+    transcript_task = (
+        await tr_repo.get_task_by_id(media_details.transcript_task_record_id)
+        if media_details.transcript_task_record_id
+        else None
+    )
+    playable = (
+        media_details.status == TaskStatus.COMPLETE
+        and bool(media_details.file_path)
+        and media_details.media_type != MediaType.TRANSCRIPT
+    )
+    return {
+        'media': {
+            'id': media_details.id,
+            'url': media_details.url,
+            'title': media_details.title,
+            'channel': media_details.channel,
+            'media_type': media_details.media_type,
+            'status': media_details.status,
+            'duration': media_details.duration,
+            'release_timestamp': media_details.release_timestamp,
+            'thumbnail_path': media_details.thumbnail_path,
+            'playable': playable,
+            'rating': ratings.get(media_details.id),
+            'access_count': playback.access_count if playback else 0,
+            'playback_position': playback.playback_position if playback else None,
+            'owner_id': media_details.owner_id,
+            'transcript_task_status': transcript_task.status if transcript_task else None,
+            'transcript_task_progress': (
+                transcript_task.percent_complete if transcript_task else None
+            ),
+        },
+        'youtube_id': youtube_video_id(media_details.url),
+        'blocks': [
+            {'id': b.id, 'start_time': b.start_time, 'end_time': b.end_time, 'text': b.text}
+            for b in blocks
+        ],
+    }
+
+
+@router.get(
     '',
     status_code=status.HTTP_200_OK,
     response_description='MediaDetails objects matching criteria',
@@ -174,9 +266,18 @@ async def get_all_media_details(
     date_field: str | None = None,
     date_year: int | None = None,
     date_month: int | None = None,
+    media_type: MediaType | None = None,
+    has_transcript: bool = False,
     user_id: int = Depends(get_required_user_id),
     effective_user_id: int | None = Depends(get_effective_user_id),
 ):
+    """List media the caller can see, filtered and paginated.
+
+    Lists audio and video only, unless `media_type` names a type (`TRANSCRIPT` for
+    transcript-only items). `has_transcript=true` is the Transcripts view: every item
+    with a transcript, of any type and any status, including deleted media whose
+    transcript was kept; each row then carries `transcript_block_count`.
+    """
     if page_size is None:
         settings = await settings_repo.get_settings()
         page_size = settings.download_table_page_size
@@ -203,6 +304,8 @@ async def get_all_media_details(
         date_field=date_field,
         date_year=date_year,
         date_month=date_month,
+        media_types=_media_types_filter(media_type, has_transcript),
+        has_transcript=has_transcript,
     )
 
 
@@ -305,6 +408,15 @@ async def create_transcript(
         ),
     )
 
+    if md.media_type == MediaType.TRANSCRIPT and not md.file_path:
+        # Its captions or audio were deleted once it was indexed; there is nothing here
+        # to transcribe from. Requesting the URL again with Overwrite re-fetches them.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='Transcript-only items are re-indexed by requesting the URL again '
+            'with Overwrite',
+        )
+
     if md.transcript_task_record_id:
         existing_task = await tr_repo.get_task_by_id(md.transcript_task_record_id)
         if existing_task and existing_task.status in [TaskStatus.QUEUED, TaskStatus.IN_PROGRESS]:
@@ -399,7 +511,12 @@ async def _attempt_ownership_transfer(media_id: int, owner_id: int) -> bool:
 
 
 async def _handle_soft_delete_cascade(media_id: int, keep_transcripts: bool) -> None:
-    """Soft delete a media record with full cascade: transcripts, playlists, access rows."""
+    """Soft delete a media record with full cascade: transcripts, playlists, access rows.
+
+    A thumbnail lives as long as the media file or the transcript does, so it is kept
+    only when a transcript actually stays behind.
+    """
+    keep_thumbnail = keep_transcripts and await tb_repo.has_transcript_blocks(media_id)
     if not keep_transcripts:
         transcript_delete_count = await tb_repo.delete_transcript_block_by_media_details_id(
             media_id
@@ -424,7 +541,9 @@ async def _handle_soft_delete_cascade(media_id: int, keep_transcripts: bool) -> 
     if tag_cleanup_count > 0:
         logger.info(f'Cleaned up {tag_cleanup_count} media_tag rows for media {media_id}')
 
-    md_modified_count = await md_repo.soft_delete_media_details_by_id(media_id)
+    md_modified_count = await md_repo.soft_delete_media_details_by_id(
+        media_id, keep_thumbnail=keep_thumbnail
+    )
     if md_modified_count > 0:
         logger.info(f'Soft deleted MediaDetails with id: {media_id}')
         return
@@ -447,6 +566,10 @@ async def _delete_one_media(
     media = await md_repo.get_media_details_by_id(media_id)
     if media is None:
         return 'not_found'
+    if media.media_type == MediaType.TRANSCRIPT:
+        # The transcript is all a transcript-only item is. Kept, the DELETED row would
+        # still be listed in the Transcripts view and found by search.
+        keep_transcripts = False
 
     is_owner = media.owner_id == user_id
 
@@ -636,8 +759,15 @@ async def delete_transcripts_for_media(
     # Clear the stale transcript_task_record link so the Downloads table renders
     # the "generate transcript" button again instead of the old COMPLETE/CANCELLED
     # icon. The TaskRecord row itself is preserved for history in the Tasks tab.
+    cleared: dict = {}
     if md.transcript_task_record_id is not None:
-        await md_repo.update_one(id, {'transcript_task_record_id': None})
+        cleared['transcript_task_record_id'] = None
+    # With no media file either, the transcript was the last thing the thumbnail was for.
+    if not md.file_path and md.thumbnail_path:
+        delete_thumbnail(md.thumbnail_path)
+        cleared['thumbnail_path'] = None
+    if cleared:
+        await md_repo.update_one(id, cleared)
 
     logger.info(
         f'Removed transcript work for media_details_id={id}: '

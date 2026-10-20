@@ -2,7 +2,12 @@
 
 import React from "react"
 
-import { Bars2Icon, FilmIcon, MusicalNoteIcon } from "@heroicons/react/20/solid"
+import {
+  Bars2Icon,
+  DocumentTextIcon,
+  FilmIcon,
+  MusicalNoteIcon,
+} from "@heroicons/react/20/solid"
 
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -18,6 +23,7 @@ import {
   getFullTimestamp,
 } from "@/app/utils"
 import type { Download } from "@/app/types/DownloadsOptions"
+import { isRatable, mediaTypeLabel } from "@/app/lib/mediaScope"
 
 const textCell = "text-xs md:text-sm text-text-primary truncate block"
 const monoCell = "text-xs md:text-sm text-text-muted font-mono"
@@ -208,12 +214,17 @@ export function buildDownloadColumns({
       // with the meta line, where a pill would dominate.
       mobile: "badge",
       renderMobile: (row) => {
-        const TypeIcon = row.media_type === "VIDEO" ? FilmIcon : MusicalNoteIcon
+        const TypeIcon =
+          row.media_type === "VIDEO"
+            ? FilmIcon
+            : row.media_type === "TRANSCRIPT"
+              ? DocumentTextIcon
+              : MusicalNoteIcon
         return <TypeIcon className="h-3.5 w-3.5 shrink-0 text-text-muted" />
       },
       render: (row) => (
         <Badge variant="outline" className="text-xs font-mono">
-          {row.media_type}
+          {mediaTypeLabel(status, row)}
         </Badge>
       ),
     },
@@ -237,7 +248,7 @@ export function buildDownloadColumns({
       stopRowClick: true,
       mobile: "hidden",
       render: (row) =>
-        status === "COMPLETE" ? (
+        isRatable(status, row) ? (
           <StarRating
             rating={row.rating}
             onRate={onRate && ((r) => onRate(row.media_details_id, r))}
