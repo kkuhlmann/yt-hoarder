@@ -90,6 +90,13 @@ A new playback surface should be one more host, not a second copy of the panel.
   (`transcriptsViewActions`) decide per row rather than per scope. The type chip and the stars go
   through `mediaTypeLabel` / `isRatable` there too, so the table and the grid can't disagree.
   Its grid keeps its own view-mode key (`"transcripts"`), falling back to the Library's.
+- **The bulk bar decides per row too** (`MediaBulkActions`, splitting on `transcriptOrigin`).
+  - A deleted row gets no tags or shares. The server would tag one anyway, because its owner still
+    passes `user_can_access_media`.
+  - A deleted row's delete goes to `DELETE …/{id}/transcripts`, as its own button's does, rather than
+    `bulk-delete`. On an already-deleted row, `bulk-delete` tries an ownership transfer first.
+  - Selection is keyed on `grouping.leafKey` as well as the page, since this table, unlike the
+    Library's, sits inside group folders.
 - **The Resume button is shared.** The Transcripts view uses the Library's stored preference, but not
   the Library's pause-while-a-queue-plays, since these pages don't use the queue.
 

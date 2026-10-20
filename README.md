@@ -251,7 +251,9 @@ the same **Download Sleep** setting as downloads, since both talk to YouTube.
 search: transcript-only items, library media with a transcript (*In library*), and deleted media
 whose transcript you kept (*Deleted*). Like the Library it has a **Grid** view, and it groups into
 folders by channel, tag or date; an open folder narrows transcript search to it. With **Resume** on,
-opening a row picks up where you left off.
+opening a row picks up where you left off. Its table view has the Library's checkboxes and bulk bar
+(Delete, Tags, Share; playlists stay in the Library). A bulk delete treats each row the way its own
+trash button does, so a selected *Deleted* row loses its kept transcript.
 
 Transcript-only items keep a small thumbnail (YouTube's 480px image, about 20 KB) so the grid has
 pictures. A thumbnail lasts as long as the media file or the transcript does: deleting library media

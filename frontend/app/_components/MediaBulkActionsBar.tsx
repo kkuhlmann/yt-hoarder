@@ -15,11 +15,14 @@ type ExtraBulkAction = {
 
 type MediaBulkActionsBarProps = {
   selectedItems: Download[]
+  /** The selected rows tags and shares apply to: all but deleted ones. Defaults to all. */
+  editableItems?: Download[]
   currentUserId: number | null
   onDelete: () => void
   onTag: () => void
   onShare: () => void
-  onPlaylist: () => void
+  /** Omit to leave the button out. */
+  onPlaylist?: () => void
   onClearSelection: () => void
   loadingAction?: BulkActionType
   /** Surface-specific buttons, e.g. playlist detail's "Remove from playlist". */
@@ -28,6 +31,7 @@ type MediaBulkActionsBarProps = {
 
 export function MediaBulkActionsBar({
   selectedItems,
+  editableItems = selectedItems,
   currentUserId,
   onDelete,
   onTag,
@@ -38,7 +42,8 @@ export function MediaBulkActionsBar({
   extraActions = [],
 }: MediaBulkActionsBarProps) {
   const totalCount = selectedItems.length
-  const ownedCount = selectedItems.filter((i) => i.owner_id === currentUserId).length
+  const editableCount = editableItems.length
+  const ownedCount = editableItems.filter((i) => i.owner_id === currentUserId).length
 
   const buttons: BulkBarButton[] = [
     {
@@ -53,18 +58,33 @@ export function MediaBulkActionsBar({
       key: "tag",
       onClick: onTag,
       variant: "secondary",
+      disabled: editableCount === 0,
+      title: editableCount < totalCount ? "Deleted media has no tags" : undefined,
       isLoading: loadingAction === "tag",
       loadingLabel: "Tagging...",
-      content: "Tags",
+      content: (
+        <>
+          Tags
+          {editableCount > 0 && editableCount !== totalCount && (
+            <span className="text-xs opacity-80">
+              ({editableCount} of {totalCount})
+            </span>
+          )}
+        </>
+      ),
     },
-    {
-      key: "playlist",
-      onClick: onPlaylist,
-      variant: "secondary",
-      isLoading: loadingAction === "playlist",
-      loadingLabel: "Adding...",
-      content: "Add to Playlist",
-    },
+    ...(onPlaylist
+      ? [
+          {
+            key: "playlist",
+            onClick: onPlaylist,
+            variant: "secondary" as const,
+            isLoading: loadingAction === "playlist",
+            loadingLabel: "Adding...",
+            content: "Add to Playlist",
+          },
+        ]
+      : []),
     {
       key: "share",
       onClick: onShare,

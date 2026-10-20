@@ -16,12 +16,17 @@ import { MediaBulkActionsBar } from "@/app/_components/MediaBulkActionsBar"
 import { useBulkSelection } from "@/app/_hooks/useBulkSelection"
 import { apiUrl } from "@/app/lib/api"
 import { mediaApi } from "@/app/lib/mediaApi"
+import { TRANSCRIPTS_SCOPE, transcriptOrigin } from "@/app/lib/mediaScope"
 import { useAuth } from "@/app/context/AuthContext"
 import type { Download, TagInfo } from "@/app/types/DownloadsOptions"
 
 export type BulkActionType = "delete" | "tag" | "share" | "playlist" | null
 
 const mediaId = (row: Download) => row.media_details_id
+
+type BulkDeleteCounts = Partial<
+  Record<"deleted" | "transferred" | "access_removed" | "forbidden" | "not_found", number>
+>
 
 /**
  * Multi-select state for media rows, plus the `selection` bundle `MediaListView`
@@ -44,6 +49,8 @@ export function useMediaBulkSelection<T extends Download>(rows: T[]) {
 
 type MediaBulkActionsProps<T extends Download> = {
   selectedItems: T[]
+  /** The list's scope, as `MediaListView` takes it — drives the available actions. */
+  status?: string
   allTags?: TagInfo[]
   onClearSelection: () => void
   onRefresh: () => void
@@ -64,6 +71,7 @@ type MediaBulkActionsProps<T extends Download> = {
  */
 export function MediaBulkActions<T extends Download>({
   selectedItems,
+  status,
   allTags = [],
   onClearSelection,
   onRefresh,
@@ -77,26 +85,46 @@ export function MediaBulkActions<T extends Download>({
   const [showShare, setShowShare] = useState(false)
   const [showPlaylist, setShowPlaylist] = useState(false)
 
-  const ids = selectedItems.map((item) => item.media_details_id)
+  const ids = selectedItems.map(mediaId)
+  // Only the Transcripts view lists deleted rows. A soft delete removed every share and
+  // tag, so a deleted row takes neither, and deleting it does what its own button does:
+  // drops the transcript it kept.
+  const deletedItems = selectedItems.filter((item) => transcriptOrigin(item) === "deleted")
+  const liveItems = selectedItems.filter((item) => transcriptOrigin(item) !== "deleted")
+  const liveIds = liveItems.map(mediaId)
+  // The transcript is all a transcript-only item is, so only library media has one to keep.
+  const keepable = selectedItems.some((item) => transcriptOrigin(item) === "library")
 
   const handleDelete = async () => {
     setLoadingAction("delete")
     try {
-      const res = await axios.delete(apiUrl(mediaApi.bulkDelete), {
-        data: { media_details_ids: ids, keep_transcripts: keepTranscripts },
-      })
+      const [media, transcripts] = await Promise.all([
+        liveIds.length > 0
+          ? axios
+              .delete<BulkDeleteCounts>(apiUrl(mediaApi.bulkDelete), {
+                data: { media_details_ids: liveIds, keep_transcripts: keepTranscripts },
+              })
+              .then((res) => res.data)
+          : Promise.resolve<BulkDeleteCounts>({}),
+        Promise.allSettled(
+          deletedItems.map((item) =>
+            axios.delete(apiUrl(mediaApi.transcripts(item.media_details_id))),
+          ),
+        ),
+      ])
       const {
         deleted = 0,
         transferred = 0,
         access_removed: accessRemoved = 0,
         forbidden = 0,
         not_found: notFound = 0,
-      } = res.data
-      const removed = deleted + transferred + accessRemoved
-      const skipped = forbidden + notFound
+      } = media
+      const transcriptsRemoved = transcripts.filter((r) => r.status === "fulfilled").length
+      const removed = deleted + transferred + accessRemoved + transcriptsRemoved
+      const skipped = forbidden + notFound + transcripts.length - transcriptsRemoved
       if (skipped === 0) {
         toast.success(
-          keepTranscripts
+          keepTranscripts && keepable
             ? `Deleted ${removed} items (transcripts kept)`
             : `Deleted ${removed} items`,
         )
@@ -119,7 +147,7 @@ export function MediaBulkActions<T extends Download>({
     setLoadingAction("tag")
     try {
       const res = await axios.put(apiUrl(mediaApi.bulkTags), {
-        media_details_ids: ids,
+        media_details_ids: liveIds,
         tag_names: tagNames,
       })
       toast.success(`Tagged ${res.data.tagged_count} items`)
@@ -137,6 +165,7 @@ export function MediaBulkActions<T extends Download>({
     <>
       <MediaBulkActionsBar
         selectedItems={selectedItems}
+        editableItems={liveItems}
         currentUserId={user?.id ?? null}
         onDelete={() => {
           // A previous delete's unchecked box must not silently carry over into
@@ -146,7 +175,9 @@ export function MediaBulkActions<T extends Download>({
         }}
         onTag={() => setShowTag(true)}
         onShare={() => setShowShare(true)}
-        onPlaylist={() => setShowPlaylist(true)}
+        // As in its row actions, the Transcripts view leaves playlists to the Library,
+        // where every row has a file.
+        onPlaylist={status === TRANSCRIPTS_SCOPE ? undefined : () => setShowPlaylist(true)}
         onClearSelection={onClearSelection}
         loadingAction={loadingAction}
         extraActions={extraActions}
@@ -159,18 +190,26 @@ export function MediaBulkActions<T extends Download>({
         title={`Delete ${selectedItems.length} ${selectedItems.length === 1 ? "Item" : "Items"}`}
         description={`Are you sure you want to delete ${selectedItems.length} selected ${
           selectedItems.length === 1 ? "item" : "items"
-        }? This action cannot be undone.`}
+        }?${
+          deletedItems.length > 0
+            ? ` For the ${deletedItems.length} already deleted, only the kept ${
+                deletedItems.length === 1 ? "transcript is" : "transcripts are"
+              } removed.`
+            : ""
+        } This action cannot be undone.`}
         descriptionClassName="text-status-error/80"
         confirmLabel={`Delete ${selectedItems.length} ${selectedItems.length === 1 ? "Item" : "Items"}`}
         loadingLabel="Deleting..."
         isLoading={loadingAction === "delete"}
         onConfirm={handleDelete}
       >
-        <KeepTranscriptsCheckbox
-          id="bulk-keep-transcripts"
-          checked={keepTranscripts}
-          onChange={setKeepTranscripts}
-        />
+        {keepable && (
+          <KeepTranscriptsCheckbox
+            id="bulk-keep-transcripts"
+            checked={keepTranscripts}
+            onChange={setKeepTranscripts}
+          />
+        )}
       </ConfirmDialog>
 
       {showTag && (
@@ -185,7 +224,7 @@ export function MediaBulkActions<T extends Download>({
           allTags={allTags}
           onSave={handleTag}
           bulkMode
-          bulkCount={selectedItems.length}
+          bulkCount={liveItems.length}
         />
       )}
 
@@ -211,7 +250,7 @@ export function MediaBulkActions<T extends Download>({
             setShowShare(open)
             if (!open) onClearSelection()
           }}
-          entityIds={selectedItems
+          entityIds={liveItems
             .filter((i) => i.owner_id === user?.id)
             .map((i) => i.media_details_id)}
           entityType="media-details"
