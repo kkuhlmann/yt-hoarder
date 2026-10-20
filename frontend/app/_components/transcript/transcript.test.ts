@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
   activeBlockIndex,
+  centerOffset,
   filterTranscriptBlocks,
+  followScroll,
   pageKindFor,
   parsePlayerInfo,
   positionSaveDue,
@@ -193,5 +195,32 @@ describe("resumePosition", () => {
 
   it("resumes when the duration isn't known", () => {
     expect(resumePosition(doc({ playback_position: 580, duration: null }).media)).toBe(580)
+  })
+})
+
+describe("followScroll", () => {
+  // A 400px view, and a 100px row placed relative to its top.
+  const row = (top: number) => ({ top, bottom: top + 100 })
+
+  it("leaves a row that already shows alone", () => {
+    expect(followScroll(row(0), 400)).toBeNull()
+    expect(followScroll(row(300), 400)).toBeNull()
+  })
+
+  it("eases the next passage up to the bottom edge, or a previous one down to the top", () => {
+    expect(followScroll(row(350), 400)).toEqual({ by: 50, smooth: true })
+    expect(followScroll(row(-60), 400)).toEqual({ by: -60, smooth: true })
+  })
+
+  it("jumps to a row far away, centering it, in either direction", () => {
+    expect(followScroll(row(20_000), 400)).toEqual({ by: 19_850, smooth: false })
+    expect(followScroll(row(-20_000), 400)).toEqual({ by: -20_150, smooth: false })
+  })
+})
+
+describe("centerOffset", () => {
+  it("is the scroll that puts the row's middle at the view's", () => {
+    expect(centerOffset({ top: 500, bottom: 600 }, 400)).toBe(350)
+    expect(centerOffset({ top: 150, bottom: 250 }, 400)).toBe(0)
   })
 })

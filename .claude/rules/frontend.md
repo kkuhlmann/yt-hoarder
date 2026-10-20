@@ -61,6 +61,23 @@ A new playback surface should be one more host, not a second copy of the panel.
   refuses anyone else. Nothing shows offline.
 - **`TranscriptPanel`'s search keeps passages containing every typed word**, and the list stops
   auto-scrolling while a search is active, so results don't move under the user.
+- **`TranscriptPanel` follows playback until the user scrolls the playing passage away.** Then it
+  holds still and floats **Back to playback**, and that button, a click on a passage, or a new search
+  resumes following. Only the user's own input (wheel, touch, keys, pointer) counts as scrolling away,
+  so the panel's own scrolls never pause it. Three choices here are deliberate:
+  - **It scrolls the list with `list.scrollTo`, never `scrollIntoView`.** `scrollIntoView` moves the
+    page too, and on a phone, where the panel sits below the player, it pulls the video off screen.
+  - **A passage more than a view away is an instant jump, centered, not an eased scroll.** Easing
+    across a long transcript runs through rows `content-visibility` hasn't laid out. They grow from
+    the 5rem placeholder to their real height as it goes, so the target keeps moving, and in Chromium
+    the scroll ends thousands of pixels from it. A jump has the same problem on a smaller scale: the
+    rows it lands among grow and push the passage out of view. A `ResizeObserver` on the passage
+    re-centers it. It fires in the frame the passage grows, after layout and before paint. Its first
+    callback, at `observe()`, still sees placeholder geometry, which is why it stays connected until
+    the next passage instead of disconnecting after one call. A `requestAnimationFrame` pass would work
+    too, but it paints one frame of the wrong passages first.
+  - **A passage click skips following until the host's time moves.** Hosts report the seek a tick
+    later, and following the stale `active` meanwhile would jump away from the passage just clicked.
 - **`TranscriptPanel` re-renders at playback rate, but its passages mustn't.** Hosts pass a new
   `currentTime` several times a second and a fresh `onSeek` each time, and a 10-hour transcript is
   ~1,800 passages. So rows are `memo`ised with props that hold still between ticks (`terms`, `shown`
