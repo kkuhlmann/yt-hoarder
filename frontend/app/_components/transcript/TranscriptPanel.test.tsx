@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 
 // Each passage formats its time once per render, so the spy counts row renders.
 const formatTime = vi.hoisted(() => vi.fn())
@@ -86,7 +86,7 @@ describe("TranscriptPanel", () => {
   it("marks the passage that is playing", () => {
     renderPanel(25)
 
-    const buttons = screen.getAllByRole("button")
+    const buttons = within(screen.getByRole("list")).getAllByRole("button")
     expect(buttons[1].className).toContain("bg-matrix/10")
     expect(buttons[0].className).not.toContain("bg-matrix/10")
   })
@@ -196,36 +196,38 @@ describe("TranscriptPanel following playback", () => {
     fireEvent.scroll(list)
   }
 
-  const backButton = () => screen.queryByRole("button", { name: "Back to playback" })
+  const follow = () => screen.getByRole("button", { name: "Follow" })
+  const followOn = () => follow().getAttribute("aria-pressed") === "true"
 
-  it("opens on the playing passage at once, however deep into the transcript", () => {
+  it("opens with the playing passage second from the top, however deep it is", () => {
     renderLong(60)
 
-    // Passage 60 sits at 3000px; centered in the 200px view is 2925.
+    // Passage 59 sits at 2950px, and goes to the top of the view at once.
+    expect(followOn()).toBe(true)
     expect(scrollTo).toHaveBeenCalledTimes(1)
-    expect(scrollTo).toHaveBeenCalledWith({ top: 2925, behavior: "instant" })
+    expect(scrollTo).toHaveBeenCalledWith({ top: 2950, behavior: "instant" })
   })
 
-  it("eases on to the next passage as playback moves", () => {
+  it("eases along with every passage as playback moves", () => {
     const { playAt } = renderLong(60)
     scrollTo.mockClear()
 
     playAt(61)
-    expect(scrollTo).not.toHaveBeenCalled()
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 3000, behavior: "smooth" })
 
     playAt(62)
-    expect(scrollTo).toHaveBeenCalledWith({ top: 2950, behavior: "smooth" })
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 3050, behavior: "smooth" })
   })
 
-  it("re-centers once the rows it jumped among take their real height", () => {
+  it("re-aligns once the rows it jumped among take their real height", () => {
     const { playAt } = renderLong(60)
     layout.shift = 120
 
     resize()
-    expect(scrollTo).toHaveBeenLastCalledWith({ top: 3045, behavior: "instant" })
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 3070, behavior: "instant" })
 
-    scrollTo.mockClear()
     playAt(61)
+    scrollTo.mockClear()
     resize()
     expect(scrollTo).not.toHaveBeenCalled()
   })
@@ -240,32 +242,49 @@ describe("TranscriptPanel following playback", () => {
     expect(scrollTo).toHaveBeenCalledTimes(1)
   })
 
-  it("stops following once the playing passage is scrolled away, until Back to playback", () => {
+  it("turns Follow off at any scroll of the user's, until Follow is pressed again", () => {
     const { playAt } = renderLong(60)
-    expect(backButton()).toBeNull()
 
-    scrollListTo(1000)
-    expect(backButton()).toBeTruthy()
+    // Passage 60 is still in view.
+    scrollListTo(2900)
+    expect(followOn()).toBe(false)
 
     scrollTo.mockClear()
     playAt(62)
     expect(scrollTo).not.toHaveBeenCalled()
 
-    fireEvent.click(backButton()!)
-    expect(scrollTo).toHaveBeenCalledWith({ top: 3025, behavior: "instant" })
-    expect(backButton()).toBeNull()
+    fireEvent.click(follow())
+    expect(followOn()).toBe(true)
+    expect(scrollTo).toHaveBeenCalledWith({ top: 3050, behavior: "smooth" })
+
+    scrollListTo(1000)
+    fireEvent.click(follow())
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 3050, behavior: "instant" })
   })
 
-  it("follows again once the playing passage is scrolled back into view", () => {
+  it("turns Follow off from its button without scrolling", () => {
     const { playAt } = renderLong(60)
-    scrollListTo(1000)
-
-    scrollListTo(2950)
-    expect(backButton()).toBeNull()
-
     scrollTo.mockClear()
-    playAt(63)
-    expect(scrollTo).toHaveBeenCalledWith({ top: 3000, behavior: "smooth" })
+
+    fireEvent.click(follow())
+    expect(followOn()).toBe(false)
+    playAt(62)
+
+    expect(scrollTo).not.toHaveBeenCalled()
+  })
+
+  it("keeps following through a tap that didn't scroll", () => {
+    renderLong(60)
+    const list = screen.getByRole("list")
+
+    fireEvent.touchStart(list)
+    fireEvent.touchEnd(list)
+    fireEvent.pointerDown(list)
+    fireEvent.pointerUp(list)
+    // Rows growing out of their placeholders scroll the list too.
+    fireEvent.scroll(list)
+
+    expect(followOn()).toBe(true)
   })
 
   it("follows from a clicked passage, without first jumping back to the old one", () => {
@@ -275,28 +294,37 @@ describe("TranscriptPanel following playback", () => {
 
     fireEvent.click(screen.getByText("Passage 21."))
     expect(onSeek).toHaveBeenCalledWith(420)
-    expect(backButton()).toBeNull()
+    expect(followOn()).toBe(true)
     // The host hasn't caught up with the seek yet.
     expect(scrollTo).not.toHaveBeenCalled()
 
+    // Passage 20 is already at the top.
     playAt(21)
     expect(scrollTo).not.toHaveBeenCalled()
 
-    playAt(24)
+    playAt(22)
     expect(scrollTo).toHaveBeenCalledWith({ top: 1050, behavior: "smooth" })
   })
 
-  it("leaves the way back to the search box while searching", () => {
-    renderLong(60)
-    scrollListTo(1000)
+  it("holds still while searching, and Follow clears the search to go back", () => {
+    const { playAt } = renderLong(60)
 
     fireEvent.change(search(), { target: { value: "passage" } })
-    expect(backButton()).toBeNull()
+    expect(followOn()).toBe(false)
+    scrollTo.mockClear()
     scrollListTo(500)
-    expect(backButton()).toBeNull()
+    playAt(62)
+    expect(scrollTo).not.toHaveBeenCalled()
 
+    fireEvent.click(follow())
+    expect(search().value).toBe("")
+    expect(followOn()).toBe(true)
+    expect(scrollTo).toHaveBeenCalledWith({ top: 3050, behavior: "instant" })
+
+    fireEvent.change(search(), { target: { value: "passage" } })
+    scrollListTo(500)
     scrollTo.mockClear()
     fireEvent.click(screen.getByLabelText("Clear search"))
-    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: "instant" }))
+    expect(scrollTo).toHaveBeenCalledWith({ top: 3050, behavior: "instant" })
   })
 })

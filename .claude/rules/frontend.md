@@ -61,18 +61,28 @@ A new playback surface should be one more host, not a second copy of the panel.
   refuses anyone else. Nothing shows offline.
 - **`TranscriptPanel`'s search keeps passages containing every typed word**, and the list stops
   auto-scrolling while a search is active, so results don't move under the user.
-- **`TranscriptPanel` follows playback until the user scrolls the playing passage away.** Then it
-  holds still and floats **Back to playback**, and that button, a click on a passage, or a new search
-  resumes following. Only the user's own input (wheel, touch, keys, pointer) counts as scrolling away,
-  so the panel's own scrolls never pause it. Three choices here are deliberate:
+- **`TranscriptPanel` holds the playing passage second from the top while Follow is on**, with the
+  passage before it above. **Follow** is a toggle beside the search box. Any scroll of the list by the
+  user turns it off, and it never comes back on by itself. Follow, a click on a passage, or a change
+  to the search turns it back on. Only the user's own input (wheel, touch, keys, pointer) counts as
+  scrolling, so the panel's own scrolls never turn it off. Five choices here are deliberate:
+  - **The control and the playing passage live at the top of the list.** The list's bottom edge is
+    often below the screen. On a phone the panel sits below the player at `60vh`. On desktop the sticky
+    panel's `calc(100dvh-10rem)` assumes it starts near the top of the window, which it doesn't. A
+    floating button at the bottom, and a follow that parked the passage at the nearest edge, both
+    ended up out of sight.
+  - **Any user scroll turns Follow off, not just one that hides the playing passage.** A lock that
+    re-snapped at the next passage would yank away whatever the user was reading. A tap that never
+    scrolled clears the input flag on `touchend` / `pointerup`. Left set, a later scroll event from
+    layout, as rows grow out of their placeholders, would pass for the user's.
   - **It scrolls the list with `list.scrollTo`, never `scrollIntoView`.** `scrollIntoView` moves the
     page too, and on a phone, where the panel sits below the player, it pulls the video off screen.
-  - **A passage more than a view away is an instant jump, centered, not an eased scroll.** Easing
-    across a long transcript runs through rows `content-visibility` hasn't laid out. They grow from
-    the 5rem placeholder to their real height as it goes, so the target keeps moving, and in Chromium
-    the scroll ends thousands of pixels from it. A jump has the same problem on a smaller scale: the
-    rows it lands among grow and push the passage out of view. A `ResizeObserver` on the passage
-    re-centers it. It fires in the frame the passage grows, after layout and before paint. Its first
+  - **A passage more than a view away is an instant jump, not an eased scroll.** Easing across a
+    long transcript runs through rows `content-visibility` hasn't laid out. They grow from the 5rem
+    placeholder to their real height as it goes, so the target keeps moving, and in Chromium the
+    scroll ends thousands of pixels from it. A jump has the same problem on a smaller scale: the rows
+    it lands among grow and move the passage off its place. A `ResizeObserver` on the passage and its
+    anchor re-aligns them. It fires in the frame they grow, after layout and before paint. Its first
     callback, at `observe()`, still sees placeholder geometry, which is why it stays connected until
     the next passage instead of disconnecting after one call. A `requestAnimationFrame` pass would work
     too, but it paints one frame of the wrong passages first.

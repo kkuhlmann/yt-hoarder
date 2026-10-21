@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   activeBlockIndex,
-  centerOffset,
   filterTranscriptBlocks,
-  followScroll,
+  lockScroll,
   pageKindFor,
   parsePlayerInfo,
   positionSaveDue,
@@ -198,29 +197,19 @@ describe("resumePosition", () => {
   })
 })
 
-describe("followScroll", () => {
-  // A 400px view, and a 100px row placed relative to its top.
-  const row = (top: number) => ({ top, bottom: top + 100 })
-
-  it("leaves a row that already shows alone", () => {
-    expect(followScroll(row(0), 400)).toBeNull()
-    expect(followScroll(row(300), 400)).toBeNull()
+describe("lockScroll", () => {
+  it("leaves an anchor already at the top", () => {
+    expect(lockScroll(0, 400)).toBeNull()
+    expect(lockScroll(0.4, 400)).toBeNull()
   })
 
-  it("eases the next passage up to the bottom edge, or a previous one down to the top", () => {
-    expect(followScroll(row(350), 400)).toEqual({ by: 50, smooth: true })
-    expect(followScroll(row(-60), 400)).toEqual({ by: -60, smooth: true })
+  it("eases an anchor within a view, in either direction", () => {
+    expect(lockScroll(80, 400)).toEqual({ by: 80, smooth: true })
+    expect(lockScroll(-400, 400)).toEqual({ by: -400, smooth: true })
   })
 
-  it("jumps to a row far away, centering it, in either direction", () => {
-    expect(followScroll(row(20_000), 400)).toEqual({ by: 19_850, smooth: false })
-    expect(followScroll(row(-20_000), 400)).toEqual({ by: -20_150, smooth: false })
-  })
-})
-
-describe("centerOffset", () => {
-  it("is the scroll that puts the row's middle at the view's", () => {
-    expect(centerOffset({ top: 500, bottom: 600 }, 400)).toBe(350)
-    expect(centerOffset({ top: 150, bottom: 250 }, 400)).toBe(0)
+  it("jumps to an anchor further away", () => {
+    expect(lockScroll(20_000, 400)).toEqual({ by: 20_000, smooth: false })
+    expect(lockScroll(-401, 400)).toEqual({ by: -401, smooth: false })
   })
 })

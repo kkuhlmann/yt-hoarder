@@ -131,29 +131,19 @@ export function activeBlockIndex(blocks: TranscriptDocument["blocks"], seconds: 
   return active
 }
 
-/** A row's vertical extent, measured from the top of the list's visible area. */
-export type RowSpan = { top: number; bottom: number }
-
-/** How far to scroll to put `row` in the middle of a view `viewHeight` tall. */
-export function centerOffset(row: RowSpan, viewHeight: number): number {
-  return row.top - (viewHeight - (row.bottom - row.top)) / 2
-}
-
 /**
- * How to scroll a list to keep the playing `row` in view, or null when it already shows.
- * Within a view's height of the edge, as the next passage is during playback, it eases to
- * the nearest edge. Anywhere further it jumps and centers: easing across a long transcript
- * passes rows content-visibility hasn't laid out, and they show blank until they are.
+ * How far to scroll a list so the playing passage sits second from the top, given the top of
+ * its anchor (the passage before it, or the playing one at the start) measured from the top of
+ * the list's view; null when it is already there. Within a view's height it eases. Further,
+ * it jumps: easing across a long transcript passes rows content-visibility hasn't laid out,
+ * which grow as it goes and move the target.
  */
-export function followScroll(
-  row: RowSpan,
+export function lockScroll(
+  anchorTop: number,
   viewHeight: number
 ): { by: number; smooth: boolean } | null {
-  if (row.top >= 0 && row.bottom <= viewHeight) return null
-  if (row.bottom > -viewHeight && row.top < 2 * viewHeight) {
-    return { by: row.top < 0 ? row.top : row.bottom - viewHeight, smooth: true }
-  }
-  return { by: centerOffset(row, viewHeight), smooth: false }
+  if (Math.abs(anchorTop) < 1) return null
+  return { by: anchorTop, smooth: Math.abs(anchorTop) <= viewHeight }
 }
 
 /** The source URL opened at `seconds`, for the link-out. */
