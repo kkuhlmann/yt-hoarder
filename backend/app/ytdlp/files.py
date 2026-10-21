@@ -36,7 +36,8 @@ def transcript_staging_base(url: str) -> str:
 def find_staged_audio(url: str) -> str | None:
     """The Whisper-fallback download staged for a transcript-only item, if any.
 
-    'worstaudio/worst' can resolve to a video container, so both extension sets apply.
+    The selector's 'best' fallbacks can resolve to a video container, so both extension
+    sets apply.
     """
     return find_existing_file(
         f'{transcript_staging_base(url)}.%(ext)s', extensions=AUDIO_EXTENSIONS + VIDEO_EXTENSIONS

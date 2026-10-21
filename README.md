@@ -243,7 +243,8 @@ it previously passed over. How often subscriptions are checked is set in **Setti
 **Transcript-only items** are indexed for search but never kept as media. They don't appear in the
 Library or in playlists, only in transcript search, MCP, and the **Transcripts** view. Each one
 uses YouTube's English captions when it has them; a video without captions is downloaded as the
-smallest audio stream, transcribed with Whisper, and the audio deleted. Whisper is CPU-heavy and
+smallest English audio stream (never one of YouTube's auto-dubbed tracks while an English one
+exists), transcribed with Whisper, and the audio deleted. Whisper is CPU-heavy and
 runs one job at a time, so a large caption-less backlog takes a while; caption fetches are paced by
 the same **Download Sleep** setting as downloads, since both talk to YouTube.
 

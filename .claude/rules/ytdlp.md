@@ -14,6 +14,17 @@ Browser impersonation and player-client settings avoid YouTube blocking:
 - **Challenge solving**: yt-dlp ≥2025.11.12 needs an external JS runtime for YouTube `sig`/`n` challenges — **Deno ≥2.3.0** (auto-discovered from PATH) plus the `yt-dlp-ejs` dep. Deno is pinned via the `DENO_VERSION` ARG in `Dockerfile.prod`; too-old Deno → `Signature solving failed` → `Requested format is not available`
 - Defaults live in `models.py` (`DEFAULT_PLAYER_CLIENTS` / `DEFAULT_COOKIES_PLAYER_CLIENTS`) and **only affect a fresh `app_settings` row** — existing installs keep stored values, so change them via the Settings UI, or ship a data migration as `realign_player_clients` does. Watch for clients yt-dlp removes upstream (e.g. `tv_embedded`) *and* for ones it keeps but demotes: `android_vr` still exists, but YouTube 403s every format it returns as of 2026-08-17, so a stored list still leading with it silently caps downloads at whatever the next client offers
 - Downloads failing with empty files usually means yt-dlp needs updating or the player clients need adjusting
+- **A caption 429 is usually a translated track, not rate limiting — the throttle knobs won't fix it.**
+  YouTube auto-dubbing gives every dubbed audio track its own auto-caption track, and yt-dlp files a
+  `tlang=en` machine translation of each under `en`, then takes the *last* (`process_subtitles`,
+  `matches[-1]`). So a dubbed English video fetches, say, the Ukrainian dub's captions translated back,
+  and YouTube 429s translation requests while serving the original track from the same IP seconds
+  later (measured both orders, 2026-10-20). `skip=translated_subs` doesn't help: it only covers
+  *manual* subtitles. Every site that fetches captions must call `prefer_untranslated_captions`
+  (`ytdlp/subtitles.py`) **between `extract_info(download=False)` and `process_ie_result`**, which
+  re-selects from `info['automatic_captions']`. A `pre_process` postprocessor runs too late, and a bare
+  `ydl.download([url])` skips the hook entirely — which is why `_download_with_fallback`'s re-runs
+  extract and process explicitly.
 - **Throttling is three separate knobs, all `app_settings` columns (never `config.yml`), all 0 = off.**
   `download_sleep_seconds` sleeps *between* jobs and only for subscription/playlist ones
   (`_rate_limit_sleep` returns early otherwise). `download_rate_limit_kbps` → yt-dlp `ratelimit`,

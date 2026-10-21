@@ -342,16 +342,32 @@ _CAPTION_OPTIONS = {
 }
 
 
+# Whisper runs an English-only model, so any English stream beats every other one, and only
+# then does size matter. Never 'worstaudio': it inverts the whole sort, language included,
+# so on a video with YouTube auto-dubs it picks a dub. 'lang' must lead the sort too —
+# '+size' alone still prefers whichever dub happens to encode smallest. HLS goes first
+# within each tier: on some videos YouTube 403s every https audio stream partway through
+# while the HLS one downloads in full.
+_TRANSCRIPT_ONLY_AUDIO = {
+    'format': (
+        'bestaudio[language^=en][protocol^=m3u8]/bestaudio[language^=en]/best[language^=en]'
+        '/bestaudio[protocol^=m3u8]/bestaudio/best'
+    ),
+    'format_sort': ['lang', '+size', '+br'],
+}
+
+
 def _transcript_only_options(*, captions_only: bool) -> dict:
     """Options for a transcript-only item: its captions alone, or audio for Whisper.
 
-    Whisper resamples to 16 kHz mono itself, so the smallest stream is all the fallback
-    needs, taken as-is. Nothing either pass writes is kept once the transcript exists.
+    Whisper resamples to 16 kHz mono itself, so the smallest English stream is all the
+    fallback needs, taken as-is. Nothing either pass writes is kept once the transcript
+    exists.
     """
     if not captions_only:
-        return {'format': 'worstaudio/worst'}
+        return dict(_TRANSCRIPT_ONLY_AUDIO)
     return {
-        'format': 'worstaudio/worst',
+        **_TRANSCRIPT_ONLY_AUDIO,
         'skip_download': True,
         # Captions don't depend on media formats, so a video whose formats come back empty
         # (PO-token or SABR trouble) can still be indexed from them.
