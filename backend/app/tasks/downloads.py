@@ -47,7 +47,12 @@ from ytdlp.options import (
     download_quality_to_ytdlp,
 )
 from ytdlp.playlists import is_repeat_download
-from ytdlp.subtitles import find_subtitle_file, is_subtitle_download_error, parse_subtitle_file
+from ytdlp.subtitles import (
+    find_subtitle_file,
+    is_subtitle_download_error,
+    parse_subtitle_file,
+    prefer_untranslated_captions,
+)
 from ytdlp.urls import get_url_hash
 
 SUBTITLE_EXTENSIONS = (
@@ -609,7 +614,11 @@ def _download_with_fallback(
             with YoutubeDL(ydl_opts_retry) as ydl_retry:
                 if md_orm:
                     ydl_retry.add_post_processor(YtPostProcessor(md_orm.id))
-                ydl_retry.download([md_dto.url if md_dto else dto.url])
+                retry_info = ydl_retry.extract_info(
+                    md_dto.url if md_dto else dto.url, download=False
+                )
+                prefer_untranslated_captions(retry_info)
+                ydl_retry.process_ie_result(retry_info, download=True)
         except DownloadError as e:
             use_fallback_format, with_subtitles = _next_attempt(
                 e, dto, use_fallback_format=use_fallback_format, with_subtitles=with_subtitles
@@ -744,6 +753,19 @@ def _staged_captions(url: str) -> str | None:
     return None
 
 
+def _warn_unless_english_audio(url: str, info: dict) -> None:
+    """Flag a Whisper download the English-first format selector couldn't keep English.
+
+    `info` is the extract_info result, which already carries the fields of the format that
+    selector picked; a missing language is a single-track video and passes silently.
+    """
+    language = info.get('language')
+    if language and not language.startswith('en'):
+        logger.warning(
+            f'Transcript-only {url}: no English audio offered; Whisper gets {language!r} audio'
+        )
+
+
 def _transcript_only_ydl_options(
     dto: DownloadJobDTO, progress_hook, pp_hook, *, cookie_file: str | None, captions_only: bool
 ) -> dict:
@@ -769,7 +791,7 @@ def _run_transcript_only(
     the ml lane like any other, and its hooks delete everything staged here. Captions are
     tried first unless force_whisper_transcription is on. Anything short of a usable
     caption file (no track, a failed fetch, an unparseable file) falls back to downloading
-    the smallest audio stream for Whisper, recorded as the row's file_path so a transcript
+    the smallest English audio stream for Whisper, recorded as the row's file_path so a transcript
     job rebuilt by startup recovery still finds it.
     """
     md_dto = dto.media_details
@@ -794,6 +816,7 @@ def _run_transcript_only(
             if md_orm and not captions_only:
                 ydl.add_post_processor(YtPostProcessor(md_orm.id))
             download_info = ydl.extract_info(dto.url, download=False)
+            prefer_untranslated_captions(download_info)
 
             is_ready, reason = is_video_ready_for_download(download_info)
             if not is_ready:
@@ -801,6 +824,7 @@ def _run_transcript_only(
                 return _handle_video_not_ready(task_id, dto, reason)
 
             if not captions_only:
+                _warn_unless_english_audio(dto.url, download_info)
                 ydl.process_ie_result(download_info, download=True)
                 return _post_download_update(dto, download_info)
 
@@ -816,6 +840,7 @@ def _run_transcript_only(
             return _post_download_update(dto, download_info)
 
         logger.warning(f'No usable YouTube captions for {dto.url}; downloading audio for Whisper')
+        _warn_unless_english_audio(dto.url, download_info)
         audio_opts = _transcript_only_ydl_options(
             dto, progress_hook, pp_hook, cookie_file=cookie_file, captions_only=False
         )
@@ -927,6 +952,7 @@ def run_download_job(ctx: JobContext, dl_job: dict) -> dict:  # noqa: C901 — t
 
                 download_info = ydl.extract_info(dto.url, download=False)
                 logger.debug(f'download_info: {download_info}')
+                prefer_untranslated_captions(download_info)
 
                 is_ready, reason = is_video_ready_for_download(download_info)
                 if not is_ready:

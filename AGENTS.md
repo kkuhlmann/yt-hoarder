@@ -236,7 +236,7 @@ one row through the ordinary cross-user grant. The library lists `LIBRARY_MEDIA_
 search and MCP span every type.
 
 The chain is the ordinary DOWNLOAD → TRANSCRIPT pair. The download job only **stages** — YouTube
-captions, else the smallest audio stream for Whisper — under `{audio_path}/.transcript-only/{url_hash}.*`,
+captions, else the smallest *English* audio stream for Whisper — under `{audio_path}/.transcript-only/{url_hash}.*`,
 and never runs ML; the transcript job embeds on the ml lane like any other. Captions are found by that
 URL-derived name, not a payload path, because startup recovery rebuilds the transcript job from the
 database row alone. The row sits in `POSTPROCESSING` until the transcript lands, and **every way the

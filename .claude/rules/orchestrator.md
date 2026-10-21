@@ -187,8 +187,15 @@ code can't state:
      back empty can still be indexed from them.
   4. Parse the caption file (pure Python) only to decide whether audio is needed. An unusable file is
      *deleted*, or the transcript job would pick it up in place of the Whisper audio.
-  5. Anything short of usable captions downloads `worstaudio/worst` with no re-encode, since Whisper
-     resamples anyway. `YtPostProcessor` records it as `file_path`, which is what recovery reads.
+  5. Anything short of usable captions downloads the smallest *English* stream
+     (`_TRANSCRIPT_ONLY_AUDIO`, `ytdlp/options.py`) with no re-encode, since Whisper resamples
+     anyway. `YtPostProcessor` records it as `file_path`, which is what recovery reads. **Never
+     `worstaudio`**: it inverts the whole format sort, language preference included, so on a
+     video carrying YouTube auto-dubs it picks a dub, and `tiny.en` renders that as English-looking
+     noise. `lang` must also lead `format_sort`, since `+size` alone still lands on whichever dub
+     encodes smallest. HLS comes first within each tier because on some videos YouTube 403s every
+     https audio stream partway through while the HLS one completes — `worstaudio` only ever
+     worked because it happened to land on HLS.
 
   A subtitle-fetch `DownloadError` goes to Whisper, not to `ctx.retry`.
 - **Staged files are named by URL hash alone**, so `cleanup_task_files`, which matches

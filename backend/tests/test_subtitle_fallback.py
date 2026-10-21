@@ -8,8 +8,10 @@ the whole download until it ended FAILED, and the transcript never reached Whisp
 import contextlib
 from typing import ClassVar
 from unittest.mock import MagicMock
+from urllib.parse import parse_qs, urlparse
 
 import pytest
+from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 from models import AppSettings, MediaType
@@ -17,7 +19,7 @@ from orchestrator import JobContext
 from schemas import DownloadJobDTO, MediaDetailsDTO
 from tasks.downloads import _download_with_fallback
 from ytdlp.options import YtDlLogger, create_ydl_options
-from ytdlp.subtitles import is_subtitle_download_error
+from ytdlp.subtitles import is_subtitle_download_error, prefer_untranslated_captions
 
 URL = 'https://www.youtube.com/watch?v=subFallbk01'
 
@@ -71,6 +73,58 @@ def test_caption_failure_is_logged_as_a_warning(monkeypatch):
     fake_logger.error.assert_called_once_with('ERROR: something else broke')
 
 
+# --------------------------------------------------------- which English track is fetched
+
+
+def _caption(lang: str, tlang: str | None = None) -> dict:
+    query = f'v=x&kind=asr&lang={lang}&fmt=json3' + (f'&tlang={tlang}' if tlang else '')
+    return {
+        'ext': 'json3',
+        'name': 'English',
+        'url': f'https://www.youtube.com/api/timedtext?{query}',
+    }
+
+
+# A dubbed English video as yt-dlp lists it: every audio track has an auto-caption track,
+# and each but the original's is filed under 'en' as a translation into English.
+ORIGINAL = _caption('en')
+DUBBED = [_caption('ar', tlang='en'), ORIGINAL, _caption('uk', tlang='en')]
+
+
+def _fetched(stubbed_environment, captions: list[dict], *, narrow: bool = True) -> dict:
+    """The query of the English caption URL the app's real options make yt-dlp fetch."""
+    options = create_ydl_options(DownloadJobDTO(url=URL, generate_transcript=True))
+    subtitle_options = {k: v for k, v in options.items() if 'sub' in k}
+    info = {
+        'id': 'x',
+        'title': 'x',
+        'webpage_url': URL,
+        'formats': [{'format_id': 'a', 'url': 'https://example.invalid/a', 'ext': 'm4a'}],
+        'automatic_captions': {'en': list(captions)},
+    }
+    if narrow:
+        prefer_untranslated_captions(info)
+    with YoutubeDL({**subtitle_options, 'quiet': True}) as ydl:
+        picked = ydl.process_ie_result(info, download=False)
+    return parse_qs(urlparse(picked['requested_subtitles']['en']['url']).query)
+
+
+def test_left_to_itself_yt_dlp_fetches_a_dubs_translation(stubbed_environment):
+    """Why the narrowing exists: YouTube 429s the translated track yt-dlp picks."""
+    assert _fetched(stubbed_environment, DUBBED, narrow=False)['tlang'] == ['en']
+
+
+def test_a_dubbed_videos_own_english_captions_are_fetched(stubbed_environment):
+    query = _fetched(stubbed_environment, DUBBED)
+    assert query['lang'] == ['en']
+    assert 'tlang' not in query
+
+
+def test_a_video_with_only_translations_into_english_keeps_them(stubbed_environment):
+    translated = [_caption('de', tlang='en')]
+    assert _fetched(stubbed_environment, translated)['lang'] == ['de']
+
+
 # ------------------------------------------------------------ the fallback sequence
 
 
@@ -92,7 +146,10 @@ class _FakeYoutubeDL:
     def add_post_processor(self, _pp):
         pass
 
-    def download(self, _urls):
+    def extract_info(self, _url, download=False):
+        return {}
+
+    def process_ie_result(self, _info, download=True):
         _FakeYoutubeDL.runs.append(self.options)
         outcome = _FakeYoutubeDL.outcomes.pop(0) if _FakeYoutubeDL.outcomes else None
         if outcome is not None:
@@ -181,7 +238,8 @@ def test_download_succeeds_and_keeps_its_transcript(monkeypatch, retries):
 
     primary = MagicMock()
     primary.__enter__.return_value = primary
-    primary.extract_info.return_value = {'id': 'x'}
+    info = {'id': 'x', 'automatic_captions': {'en': list(DUBBED)}}
+    primary.extract_info.return_value = info
     primary.process_ie_result.side_effect = SUBTITLE_ERROR
 
     # The body's own instance is constructed first; every later one is a fallback re-run.
@@ -212,3 +270,4 @@ def test_download_succeeds_and_keeps_its_transcript(monkeypatch, retries):
     assert result == {'id': 1}
     assert retries() == [(False, False)]
     assert ctx.skip_downstream is False, 'the transcript job must still run, on Whisper'
+    assert info['automatic_captions']['en'] == [ORIGINAL], 'narrowed before the first fetch'

@@ -9,6 +9,7 @@ matching the same format as whisper output for seamless integration.
 import json
 import os
 import re
+from urllib.parse import parse_qs, urlparse
 
 from yt_dlp.utils import DownloadError
 
@@ -22,6 +23,27 @@ SUBTITLE_DOWNLOAD_ERROR = 'Unable to download video subtitles'
 
 def is_subtitle_download_error(e: Exception) -> bool:
     return isinstance(e, DownloadError) and SUBTITLE_DOWNLOAD_ERROR in str(e)
+
+
+def prefer_untranslated_captions(info: dict) -> None:
+    """Narrow `info`'s English auto-captions to YouTube's own track, when it has one.
+
+    yt-dlp files a machine translation (`tlang=en`) of every auto-caption track under `en`
+    and picks the last, and auto-dubbing gives each dubbed audio track a track of its own.
+    So a dubbed English video's captions sit among translations of its dubs back into
+    English, which YouTube 429s. A video with no untranslated `en` track is left alone.
+
+    Call it between extract_info and process_ie_result, which re-selects from
+    info['automatic_captions'].
+    """
+    captions = info.get('automatic_captions') or {}
+    untranslated = [
+        track
+        for track in captions.get('en') or []
+        if 'tlang' not in parse_qs(urlparse(track.get('url') or '').query)
+    ]
+    if untranslated:
+        captions['en'] = untranslated
 
 
 def find_subtitle_file(media_file_path: str) -> str | None:

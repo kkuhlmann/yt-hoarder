@@ -13,6 +13,7 @@ import os
 import time
 
 import pytest
+from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 from config import settings
@@ -114,16 +115,113 @@ def test_captions_pass_fetches_captions_and_nothing_else(options):
     # must not fail the pass.
     assert opts['ignore_no_formats_error'] is True
     assert opts['postprocessors'] == []
+    # The captions pass's extract_info result is what the non-English warning reads, so it
+    # must select exactly as the audio pass will.
+    assert (opts['format'], opts['format_sort']) == (options()['format'], options()['format_sort'])
 
 
-def test_whisper_fallback_takes_the_smallest_stream_as_is(options):
+def test_whisper_fallback_takes_its_stream_as_is(options):
     opts = options()
 
-    assert opts['format'] == 'worstaudio/worst'
     assert 'skip_download' not in opts
     assert 'writesubtitles' not in opts
     assert opts['postprocessors'] == [], 'no re-encode: Whisper resamples it anyway'
     assert opts['save_path'].endswith('.transcript-only')
+
+
+def _audio(format_id: str, size: int, language: str | None = None, pref: int | None = None):
+    return {
+        'format_id': format_id,
+        'url': f'https://example.invalid/{format_id}',
+        'ext': 'm4a',
+        'protocol': 'https',
+        'vcodec': 'none',
+        'acodec': 'mp4a.40.2',
+        'filesize': size,
+        'language': language,
+        'language_preference': pref,
+    }
+
+
+def _muxed(format_id: str, size: int, language: str, pref: int | None = None):
+    return {**_audio(format_id, size, language, pref), 'ext': 'mp4', 'vcodec': 'avc1.4d401e'}
+
+
+def _hls(format_id: str, language: str, pref: int | None = None):
+    """An HLS audio stream as YouTube lists it: no size or bitrate to sort on."""
+    hls = {**_audio(format_id, 0, language, pref), 'protocol': 'm3u8_native', 'ext': 'mp4'}
+    del hls['filesize']
+    return hls
+
+
+# YouTube marks the original track language_preference 10 and each auto-dub -1.
+@pytest.mark.parametrize(
+    ('formats', 'expected'),
+    [
+        pytest.param(
+            [
+                _audio('dub-ar', 1_000, 'ar', -1),
+                _audio('orig-big', 9_000, 'en-US', 10),
+                _audio('orig', 5_000, 'en-US', 10),
+                _audio('dub-ml', 800, 'ml', -1),
+            ],
+            'orig',
+            id='english-original-over-smaller-dubs',
+        ),
+        pytest.param(
+            [
+                _audio('orig', 1_000, 'de', 10),
+                _audio('dub-en', 5_000, 'en', -1),
+                _audio('dub-fr', 900, 'fr', -1),
+            ],
+            'dub-en',
+            id='english-dub-over-non-english-original',
+        ),
+        pytest.param(
+            [_audio('orig', 1_000, 'de', 10), _muxed('muxed-en', 50_000, 'en', -1)],
+            'muxed-en',
+            id='english-muxed-over-non-english-audio-only',
+        ),
+        pytest.param(
+            [
+                _audio('orig', 5_000, 'de', 10),
+                _audio('orig-small', 3_000, 'de', 10),
+                _audio('dub-fr', 900, 'fr', -1),
+            ],
+            'orig-small',
+            id='no-english-takes-the-smallest-original',
+        ),
+        pytest.param(
+            [_audio('big', 9_000), _audio('small', 2_000)],
+            'small',
+            id='no-language-metadata-takes-the-smallest',
+        ),
+        pytest.param(
+            [_audio('https-en', 1_000, 'en-US', 10), _hls('hls-en', 'en-US', 10)],
+            'hls-en',
+            id='english-hls-over-smaller-english-https',
+        ),
+        pytest.param(
+            [_hls('hls-ar', 'ar', -1), _hls('hls-en', 'en-US', 10)],
+            'hls-en',
+            id='english-original-hls-over-a-dubbed-hls',
+        ),
+        pytest.param(
+            [_hls('hls-de', 'de', 10), _audio('https-en', 5_000, 'en', -1)],
+            'https-en',
+            id='english-https-over-non-english-hls',
+        ),
+    ],
+)
+def test_whisper_fallback_never_leaves_english_while_any_exists(options, formats, expected):
+    opts = options()
+    params = {'format': opts['format'], 'format_sort': opts['format_sort'], 'quiet': True}
+    info = {'id': 'pick', 'title': 'pick', 'webpage_url': URL, 'formats': formats}
+
+    with YoutubeDL(params) as ydl:
+        picked = ydl.process_ie_result(info, download=False)
+
+    assert picked['format_id'] == expected
 
 
 # ----------------------------------------------------------------- the download job
@@ -219,6 +317,17 @@ def test_captions_are_staged_and_no_media_is_downloaded(scenario, media):
     assert os.path.isfile(f'{scenario.base}.en.json3')
     assert _row(media.id).file_path is None
     assert ctx.skip_downstream is False, 'the transcript job builds and embeds them'
+
+
+def test_captions_are_narrowed_to_the_videos_own_english_track(scenario, media):
+    own = {'ext': 'json3', 'url': 'https://www.youtube.com/api/timedtext?lang=en'}
+    dub = {'ext': 'json3', 'url': 'https://www.youtube.com/api/timedtext?lang=uk&tlang=en'}
+    scenario.info['automatic_captions'] = {'en': [dub, own]}
+    scenario.on_captions = lambda: _write_captions(scenario.base)
+
+    _run(media)
+
+    assert scenario.info['automatic_captions']['en'] == [own]
 
 
 def test_the_thumbnail_is_staged_with_them_until_the_transcript_lands(scenario, media):
