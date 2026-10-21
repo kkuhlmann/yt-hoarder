@@ -39,6 +39,7 @@ import { AudioPlayer } from "@/app/_components/MediaPlayer"
 import { AudioVisualizer, type VisualizerStyle } from "@/app/_components/AudioVisualizer"
 import type { AudioAnalyserHandle } from "@/app/_hooks/useAudioAnalyser"
 import { useStoredValue, writeStored } from "@/app/_hooks/useStoredValue"
+import { showTranscriptPanel } from "@/app/_hooks/useMediaTranscript"
 import { StarRating } from "@/app/_components/StarRating"
 import { Button } from "@/components/ui/button"
 import { AnimatePresence, motion } from "framer-motion"
@@ -140,6 +141,7 @@ export default function HomePage() {
   const openAudioPage = () => {
     setView("downloads")
     setAudioPageOpen(true)
+    showTranscriptPanel()
   }
   const closeAudio = () => {
     closeAudioPlayer()
@@ -703,11 +705,11 @@ export default function HomePage() {
                     variant="outline"
                     size="sm"
                     onClick={openAudioPage}
-                    className="shrink-0 hidden sm:inline-flex gap-1.5"
+                    className="shrink-0 hidden sm:inline-flex"
                     title="Open this track's page and transcript"
+                    aria-label="Open this track's page and transcript"
                   >
                     <DocumentTextIcon className="h-4 w-4" />
-                    Transcript
                   </Button>
                 )}
                 {/* Close Button - desktop only */}

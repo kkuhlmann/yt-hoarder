@@ -53,9 +53,17 @@ A new playback surface should be one more host, not a second copy of the panel.
   assigning `currentTime` on an element a component received as a prop. The helper keeps the
   assignment out of the component.
 - **`useMediaTranscript` polls only while a job runs.** It opens the panel itself when a job it was
-  watching delivers. The panel's open state is one remembered preference (`showTranscript`), and
-  entry points that came *for* a transcript (the Transcripts view, transcript search hits) switch it on
-  via `showTranscriptPanel()`.
+  watching delivers. The panel's open state is one remembered preference (`showTranscript`, read
+  through `useTranscriptOpen`). Entry points that came *for* a transcript switch it on via
+  `showTranscriptPanel()`: the Transcripts view, transcript search hits, and the bottom bar's
+  transcript button.
+- **`MediaPage` hides a closed panel with `<Activity>` rather than unmounting it.** In Chromium,
+  closing the panel on a long transcript (~1,800 passages) spent ~40 ms in the browser's native
+  `removeChild`, not in React, so no render optimisation could reach it. Rebuilding the rows on
+  reopen cost 100 ms in a production build and nearly 400 ms under `next dev`. Hidden, the panel
+  keeps its search and scroll position, and its effects stop, so Follow re-aligns when it shows
+  again. In exchange, a page whose panel starts closed still builds the rows once, at idle priority,
+  after the page opens.
 - **`TranscriptButton`'s states mirror the server's rules** (`transcriptButtonState`). Generate shows
   only with a file to transcribe and for the owner or an admin, since `POST …/transcripts/{id}/create`
   refuses anyone else. Nothing shows offline.

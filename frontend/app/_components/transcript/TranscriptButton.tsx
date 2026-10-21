@@ -2,14 +2,15 @@
 
 import { ClockIcon, DocumentPlusIcon, DocumentTextIcon } from "@heroicons/react/20/solid"
 import { Button } from "@/components/ui/button"
-import type { MediaTranscript } from "@/app/_hooks/useMediaTranscript"
+import { useTranscriptOpen, type MediaTranscript } from "@/app/_hooks/useMediaTranscript"
 
 /**
  * The media page's transcript control: Transcript (pressed while the panel shows),
  * Generate when there is none and the user may start one, or the job's progress.
  */
 export function TranscriptButton({ transcript }: { transcript: MediaTranscript }) {
-  const { buttonState, open, setOpen, generate, doc } = transcript
+  const { buttonState, generate, doc } = transcript
+  const [open, setOpen] = useTranscriptOpen()
 
   if (buttonState === "show") {
     return (

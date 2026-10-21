@@ -263,7 +263,8 @@ but keeping its transcript keeps its picture, and deleting that transcript later
 transcript beside the player (below it on a phone): the playing line is highlighted, a click jumps
 there, and its search box narrows it to the lines containing every word you type. Media without a
 transcript shows **Generate transcript** instead, for its owner or an admin. Audio keeps playing in
-the bottom bar; its **Transcript** button opens the same page, following the bar.
+the bottom bar; its transcript button (the page icon) opens the same page with the transcript
+showing, following the bar.
 
 Items with no file to play — transcript-only, or deleted with the transcript kept — play through
 YouTube's privacy-enhanced (`youtube-nocookie.com`) embed, which sets no cookies until you press play
