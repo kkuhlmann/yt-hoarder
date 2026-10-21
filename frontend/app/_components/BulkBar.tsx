@@ -10,6 +10,7 @@ export type BulkBarButton = {
   onClick: () => void
   variant: "destructive" | "secondary" | "matrix"
   disabled?: boolean
+  title?: string
   isLoading?: boolean
   loadingLabel: string
   content: React.ReactNode
@@ -64,6 +65,7 @@ export function BulkBar({
                   variant={b.variant}
                   onClick={b.onClick}
                   disabled={b.disabled || isLoading}
+                  title={b.title}
                   className="gap-1"
                 >
                   {b.isLoading ? (

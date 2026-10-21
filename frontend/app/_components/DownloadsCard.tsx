@@ -903,8 +903,11 @@ export function DownloadsCard({
   // A selection only means anything for the rows it was made on, so it carries
   // the filter/page combination it belongs to and stops applying the moment that
   // changes. Deriving the clear beats an effect that re-renders to do the same.
+  // The leaf matters in the Transcripts table, which groups into folders: page 1 of
+  // one folder is not page 1 of the next.
   const selectionKey = JSON.stringify([
     pageNumber,
+    grouping.leafKey,
     status,
     search,
     sortBy,
@@ -920,7 +923,8 @@ export function DownloadsCard({
 
   const selectedItems = (tableRows as Download[]).filter((r) => selectedIds.has(r.media_details_id))
   const allSelected = tableRows.length > 0 && tableRows.every((r: any) => selectedIds.has(r.media_details_id))
-  const selectionActive = status === "COMPLETE" && effectiveViewMode === "table" && !offlineMode
+  const selectionActive =
+    (status === "COMPLETE" || transcriptsScope) && effectiveViewMode === "table" && !offlineMode
 
   const handleSelectAll = (selected: boolean) => {
     if (selected) {
@@ -1225,6 +1229,7 @@ export function DownloadsCard({
               {selectionActive && (
                 <MediaBulkActions
                   selectedItems={selectedItems}
+                  status={status}
                   allTags={allTags}
                   onClearSelection={() => setSelectedIds(new Set())}
                   onRefresh={handleRefresh}

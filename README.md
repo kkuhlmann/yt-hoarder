@@ -35,7 +35,7 @@ accounts and no cloud dependency.
 | Feature | Description |
 |---|---|
 | **Automatic subscriptions** | Subscribe to channels and playlists; new uploads download on a schedule, filtered by title keyword, upload date, or duration, as audio-only or full video. |
-| **Transcript search** | Items are transcribed from their YouTube captions, or locally with faster-whisper, embedded with onnxruntime, and stored in pgvector. Searches return the exact spoken passages and link to their timestamps, narrowed to whatever the library is currently filtered to — the search box, the open group folder, tag chips and minimum rating. While watching, the transcript can sit beside the player, following along and searchable on its own. |
+| **Transcript search** | Items are transcribed from their YouTube captions, or locally with faster-whisper, embedded with onnxruntime, and stored in pgvector. Searches return the exact spoken passages and link to their timestamps, narrowed to whatever the library is currently filtered to — the search box, the open group folder, tag chips and minimum rating. While watching, the transcript can sit beside the player, following along and searchable on its own; scroll away to read, and **Follow** returns to the passage playing. |
 | **Transcript-only indexing** | Download or subscribe to a video, playlist or channel as **Transcript Only**: only its transcript is kept, so it is searchable (in the app and over MCP) without taking up the library. See [Transcripts](#transcripts). |
 | **Mobile-optimized interface** | The web UI is built for phones and tablets as well as desktop: card layouts in place of tables, touch drag-and-drop, mobile chart forms, and native video fullscreen and picture-in-picture on iOS. |
 | **Waveform clipping** | Scrub an interactive waveform, drag region handles to frame-accurate start and end points, zoom for precision, and export a clip. |
@@ -252,7 +252,9 @@ the same **Download Sleep** setting as downloads, since both talk to YouTube.
 search: transcript-only items, library media with a transcript (*In library*), and deleted media
 whose transcript you kept (*Deleted*). Like the Library it has a **Grid** view, and it groups into
 folders by channel, tag or date; an open folder narrows transcript search to it. With **Resume** on,
-opening a row picks up where you left off.
+opening a row picks up where you left off. Its table view has the Library's checkboxes and bulk bar
+(Delete, Tags, Share; playlists stay in the Library). A bulk delete treats each row the way its own
+trash button does, so a selected *Deleted* row loses its kept transcript.
 
 Transcript-only items keep a small thumbnail (YouTube's 480px image, about 20 KB) so the grid has
 pictures. A thumbnail lasts as long as the media file or the transcript does: deleting library media
@@ -262,7 +264,8 @@ but keeping its transcript keeps its picture, and deleting that transcript later
 transcript beside the player (below it on a phone): the playing line is highlighted, a click jumps
 there, and its search box narrows it to the lines containing every word you type. Media without a
 transcript shows **Generate transcript** instead, for its owner or an admin. Audio keeps playing in
-the bottom bar; its **Transcript** button opens the same page, following the bar.
+the bottom bar; its transcript button (the page icon) opens the same page with the transcript
+showing, following the bar.
 
 Items with no file to play — transcript-only, or deleted with the transcript kept — play through
 YouTube's privacy-enhanced (`youtube-nocookie.com`) embed, which sets no cookies until you press play

@@ -1,10 +1,10 @@
 "use client"
 
-import type { ReactNode } from "react"
+import { Activity, type ReactNode } from "react"
 import { ArrowLeftIcon } from "@heroicons/react/20/solid"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import type { MediaTranscript } from "@/app/_hooks/useMediaTranscript"
+import { useTranscriptOpen, type MediaTranscript } from "@/app/_hooks/useMediaTranscript"
 import { TranscriptButton } from "@/app/_components/transcript/TranscriptButton"
 import { TranscriptPanel } from "@/app/_components/transcript/TranscriptPanel"
 
@@ -36,9 +36,10 @@ export function MediaPage({
   children: ReactNode
 }) {
   const { doc } = transcript
+  const [open] = useTranscriptOpen()
   const showPanel =
     doc !== null &&
-    (alwaysShowTranscript || (transcript.open && transcript.buttonState === "show"))
+    (alwaysShowTranscript || (open && transcript.buttonState === "show"))
 
   return (
     <div className="space-y-4">
@@ -51,13 +52,19 @@ export function MediaPage({
       </div>
       <div className={cn("grid gap-4", showPanel && "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]")}>
         <div className="min-w-0 space-y-4">{children}</div>
-        {showPanel && (
-          <TranscriptPanel
-            blocks={doc.blocks}
-            currentTime={currentTime}
-            onSeek={onSeek}
-            className="max-h-[60vh] lg:max-h-[calc(100dvh-10rem)] lg:sticky lg:top-4 lg:self-start"
-          />
+        {doc !== null && (
+          // Hidden rather than unmounted. Tearing down a long transcript's rows is tens of
+          // milliseconds of DOM removal on the click that closes the panel, and building them
+          // again is longer on the click that reopens it. Hidden, the panel's effects stop, so
+          // Follow re-aligns to the playing passage when it shows again.
+          <Activity mode={showPanel ? "visible" : "hidden"}>
+            <TranscriptPanel
+              blocks={doc.blocks}
+              currentTime={currentTime}
+              onSeek={onSeek}
+              className="max-h-[60vh] lg:max-h-[calc(100dvh-10rem)] lg:sticky lg:top-4 lg:self-start"
+            />
+          </Activity>
         )}
       </div>
     </div>

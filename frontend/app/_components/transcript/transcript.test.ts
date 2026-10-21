@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   activeBlockIndex,
   filterTranscriptBlocks,
+  lockScroll,
   pageKindFor,
   parsePlayerInfo,
   positionSaveDue,
@@ -193,5 +194,22 @@ describe("resumePosition", () => {
 
   it("resumes when the duration isn't known", () => {
     expect(resumePosition(doc({ playback_position: 580, duration: null }).media)).toBe(580)
+  })
+})
+
+describe("lockScroll", () => {
+  it("leaves an anchor already at the top", () => {
+    expect(lockScroll(0, 400)).toBeNull()
+    expect(lockScroll(0.4, 400)).toBeNull()
+  })
+
+  it("eases an anchor within a view, in either direction", () => {
+    expect(lockScroll(80, 400)).toEqual({ by: 80, smooth: true })
+    expect(lockScroll(-400, 400)).toEqual({ by: -400, smooth: true })
+  })
+
+  it("jumps to an anchor further away", () => {
+    expect(lockScroll(20_000, 400)).toEqual({ by: 20_000, smooth: false })
+    expect(lockScroll(-401, 400)).toEqual({ by: -401, smooth: false })
   })
 })

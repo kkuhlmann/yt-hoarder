@@ -131,6 +131,21 @@ export function activeBlockIndex(blocks: TranscriptDocument["blocks"], seconds: 
   return active
 }
 
+/**
+ * How far to scroll a list so the playing passage sits second from the top, given the top of
+ * its anchor (the passage before it, or the playing one at the start) measured from the top of
+ * the list's view; null when it is already there. Within a view's height it eases. Further,
+ * it jumps: easing across a long transcript passes rows content-visibility hasn't laid out,
+ * which grow as it goes and move the target.
+ */
+export function lockScroll(
+  anchorTop: number,
+  viewHeight: number
+): { by: number; smooth: boolean } | null {
+  if (Math.abs(anchorTop) < 1) return null
+  return { by: anchorTop, smooth: Math.abs(anchorTop) <= viewHeight }
+}
+
 /** The source URL opened at `seconds`, for the link-out. */
 export function sourceUrlAt(url: string, seconds: number): string {
   try {

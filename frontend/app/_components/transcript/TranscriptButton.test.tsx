@@ -1,11 +1,23 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import type { MediaTranscript } from "@/app/_hooks/useMediaTranscript"
 import { TranscriptButton } from "./TranscriptButton"
 import type { TranscriptDocument } from "./transcript"
 
-afterEach(cleanup)
+// Node's own experimental localStorage global shadows jsdom's and is unusable without
+// --localstorage-file, so each test gets a plain in-memory one.
+beforeEach(() => {
+  const items = new Map<string, string>()
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => items.get(key) ?? null,
+    setItem: (key: string, value: string) => items.set(key, value),
+  })
+})
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 const doc = (media: Partial<TranscriptDocument["media"]> = {}) =>
   ({
@@ -19,8 +31,6 @@ function renderButton(overrides: Partial<MediaTranscript>) {
     doc: doc(),
     failed: false,
     buttonState: "none",
-    open: false,
-    setOpen: vi.fn(),
     generate: vi.fn(),
     patchMedia: vi.fn(),
     ...overrides,
@@ -31,12 +41,13 @@ function renderButton(overrides: Partial<MediaTranscript>) {
 
 describe("TranscriptButton", () => {
   it("toggles the panel, pressed while it shows", () => {
-    const t = renderButton({ buttonState: "show", open: false })
+    renderButton({ buttonState: "show" })
     const button = screen.getByText("Transcript").closest("button")!
 
     expect(button.getAttribute("aria-pressed")).toBe("false")
     fireEvent.click(button)
-    expect(t.setOpen).toHaveBeenCalledWith(true)
+    expect(localStorage.getItem("showTranscript")).toBe("1")
+    expect(button.getAttribute("aria-pressed")).toBe("true")
   })
 
   it("starts a transcription when there is none", () => {

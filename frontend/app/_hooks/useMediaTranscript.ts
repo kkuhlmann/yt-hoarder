@@ -25,14 +25,22 @@ export function showTranscriptPanel() {
   writeStored(OPEN_KEY, "1")
 }
 
+/**
+ * Whether the panel shows, remembered across items so it stays open while browsing.
+ * Separate from `useMediaTranscript` so a toggle re-renders only the page frame and its
+ * button, not the host that loaded the transcript (DownloadsCard among them).
+ */
+export function useTranscriptOpen(): [boolean, (open: boolean) => void] {
+  const open = useStoredValue(() => localStorage.getItem(OPEN_KEY) === "1", false)
+  const setOpen = useCallback((next: boolean) => writeStored(OPEN_KEY, next ? "1" : "0"), [])
+  return [open, setOpen]
+}
+
 export type MediaTranscript = {
   doc: TranscriptDocument | null
   /** The item couldn't be loaded (gone, or no longer shared with this user). */
   failed: boolean
   buttonState: TranscriptButtonState
-  /** Whether the panel shows. Remembered across items, so it stays open while browsing. */
-  open: boolean
-  setOpen: (open: boolean) => void
   generate: () => void
   /** Optimistic edits to the loaded item, such as a rating. */
   patchMedia: (patch: Partial<TranscriptDocument["media"]>) => void
@@ -51,8 +59,6 @@ export function useMediaTranscript(mediaId: number | null): MediaTranscript {
   const [loaded, setLoaded] = useState<{ id: number; doc: TranscriptDocument } | null>(null)
   const [failedId, setFailedId] = useState<number | null>(null)
   const doc = loaded !== null && loaded.id === mediaId ? loaded.doc : null
-  const open = useStoredValue(() => localStorage.getItem(OPEN_KEY) === "1", false)
-  const setOpen = useCallback((next: boolean) => writeStored(OPEN_KEY, next ? "1" : "0"), [])
   // Which item had a job running at the last load. A ref: only the next load reads it.
   const watchedJob = useRef<number | null>(null)
 
@@ -101,8 +107,6 @@ export function useMediaTranscript(mediaId: number | null): MediaTranscript {
     doc,
     failed: doc === null && failedId !== null && failedId === mediaId,
     buttonState: transcriptButtonState(doc, user, offlineMode),
-    open,
-    setOpen,
     generate,
     patchMedia,
   }

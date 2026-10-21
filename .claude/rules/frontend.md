@@ -53,14 +53,49 @@ A new playback surface should be one more host, not a second copy of the panel.
   assigning `currentTime` on an element a component received as a prop. The helper keeps the
   assignment out of the component.
 - **`useMediaTranscript` polls only while a job runs.** It opens the panel itself when a job it was
-  watching delivers. The panel's open state is one remembered preference (`showTranscript`), and
-  entry points that came *for* a transcript (the Transcripts view, transcript search hits) switch it on
-  via `showTranscriptPanel()`.
+  watching delivers. The panel's open state is one remembered preference (`showTranscript`, read
+  through `useTranscriptOpen`). Entry points that came *for* a transcript switch it on via
+  `showTranscriptPanel()`: the Transcripts view, transcript search hits, and the bottom bar's
+  transcript button.
+- **`MediaPage` hides a closed panel with `<Activity>` rather than unmounting it.** In Chromium,
+  closing the panel on a long transcript (~1,800 passages) spent ~40 ms in the browser's native
+  `removeChild`, not in React, so no render optimisation could reach it. Rebuilding the rows on
+  reopen cost 100 ms in a production build and nearly 400 ms under `next dev`. Hidden, the panel
+  keeps its search and scroll position, and its effects stop, so Follow re-aligns when it shows
+  again. In exchange, a page whose panel starts closed still builds the rows once, at idle priority,
+  after the page opens.
 - **`TranscriptButton`'s states mirror the server's rules** (`transcriptButtonState`). Generate shows
   only with a file to transcribe and for the owner or an admin, since `POST …/transcripts/{id}/create`
   refuses anyone else. Nothing shows offline.
 - **`TranscriptPanel`'s search keeps passages containing every typed word**, and the list stops
   auto-scrolling while a search is active, so results don't move under the user.
+- **`TranscriptPanel` holds the playing passage second from the top while Follow is on**, with the
+  passage before it above. **Follow** is a toggle beside the search box. Any scroll of the list by the
+  user turns it off, and it never comes back on by itself. Follow, a click on a passage, or a change
+  to the search turns it back on. Only the user's own input (wheel, touch, keys, pointer) counts as
+  scrolling, so the panel's own scrolls never turn it off. Five choices here are deliberate:
+  - **The control and the playing passage live at the top of the list.** The list's bottom edge is
+    often below the screen. On a phone the panel sits below the player at `60vh`. On desktop the sticky
+    panel's `calc(100dvh-10rem)` assumes it starts near the top of the window, which it doesn't. A
+    floating button at the bottom, and a follow that parked the passage at the nearest edge, both
+    ended up out of sight.
+  - **Any user scroll turns Follow off, not just one that hides the playing passage.** A lock that
+    re-snapped at the next passage would yank away whatever the user was reading. A tap that never
+    scrolled clears the input flag on `touchend` / `pointerup`. Left set, a later scroll event from
+    layout, as rows grow out of their placeholders, would pass for the user's.
+  - **It scrolls the list with `list.scrollTo`, never `scrollIntoView`.** `scrollIntoView` moves the
+    page too, and on a phone, where the panel sits below the player, it pulls the video off screen.
+  - **A passage more than a view away is an instant jump, not an eased scroll.** Easing across a
+    long transcript runs through rows `content-visibility` hasn't laid out. They grow from the 5rem
+    placeholder to their real height as it goes, so the target keeps moving, and in Chromium the
+    scroll ends thousands of pixels from it. A jump has the same problem on a smaller scale: the rows
+    it lands among grow and move the passage off its place. A `ResizeObserver` on the passage and its
+    anchor re-aligns them. It fires in the frame they grow, after layout and before paint. Its first
+    callback, at `observe()`, still sees placeholder geometry, which is why it stays connected until
+    the next passage instead of disconnecting after one call. A `requestAnimationFrame` pass would work
+    too, but it paints one frame of the wrong passages first.
+  - **A passage click skips following until the host's time moves.** Hosts report the seek a tick
+    later, and following the stale `active` meanwhile would jump away from the passage just clicked.
 - **`TranscriptPanel` re-renders at playback rate, but its passages mustn't.** Hosts pass a new
   `currentTime` several times a second and a fresh `onSeek` each time, and a 10-hour transcript is
   ~1,800 passages. So rows are `memo`ised with props that hold still between ticks (`terms`, `shown`
@@ -73,6 +108,13 @@ A new playback surface should be one more host, not a second copy of the panel.
   (`transcriptsViewActions`) decide per row rather than per scope. The type chip and the stars go
   through `mediaTypeLabel` / `isRatable` there too, so the table and the grid can't disagree.
   Its grid keeps its own view-mode key (`"transcripts"`), falling back to the Library's.
+- **The bulk bar decides per row too** (`MediaBulkActions`, splitting on `transcriptOrigin`).
+  - A deleted row gets no tags or shares. The server would tag one anyway, because its owner still
+    passes `user_can_access_media`.
+  - A deleted row's delete goes to `DELETE …/{id}/transcripts`, as its own button's does, rather than
+    `bulk-delete`. On an already-deleted row, `bulk-delete` tries an ownership transfer first.
+  - Selection is keyed on `grouping.leafKey` as well as the page, since this table, unlike the
+    Library's, sits inside group folders.
 - **The Resume button is shared.** The Transcripts view uses the Library's stored preference, but not
   the Library's pause-while-a-queue-plays, since these pages don't use the queue.
 
