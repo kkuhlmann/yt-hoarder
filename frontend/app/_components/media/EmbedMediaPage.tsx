@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import toast from "react-hot-toast"
 import { formatTime } from "@/app/utils"
 import { LoadingSpinner } from "@/app/_components/LoadingSpinner"
+import { EmbedClipControls } from "@/app/_components/media/EmbedClipControls"
 import { MediaInfo } from "@/app/_components/media/MediaInfo"
 import { MediaPage } from "@/app/_components/media/MediaPage"
 import { YouTubeEmbed } from "@/app/_components/transcript/YouTubeEmbed"
@@ -12,9 +13,11 @@ import {
   sourceUrlAt,
   type TranscriptTarget,
 } from "@/app/_components/transcript/transcript"
+import { MIN_CLIP_SECONDS, useClipEditor, type ClipOutputType } from "@/app/_hooks/useClipEditor"
 import { saveRating } from "@/app/_hooks/useMediaActions"
 import { useMediaTranscript } from "@/app/_hooks/useMediaTranscript"
 import { useMediaPlayer } from "@/app/context/MediaPlayerContext"
+import { useOffline } from "@/app/context/OfflineContext"
 
 /**
  * The page for an item with no file to play: a transcript-only item, or deleted media
@@ -35,9 +38,12 @@ export function EmbedMediaPage({
 function EmbedPageBody({ target, onReturn }: { target: TranscriptTarget; onReturn: () => void }) {
   const transcript = useMediaTranscript(target.mediaId)
   const { doc, failed, patchMedia } = transcript
+  const { offlineMode } = useOffline()
   // null until the embed reports, so a resume shows its own position before playback.
   const [reportedTime, setReportedTime] = useState<number | null>(target.seconds)
   const [startedOver, setStartedOver] = useState(false)
+  const [clipping, setClipping] = useState(false)
+  const [outputType, setOutputType] = useState<ClipOutputType>("VIDEO")
   const seekRef = useRef<((seconds: number) => void) | null>(null)
 
   // One thing plays at a time: the embed starts playing on its own.
@@ -59,6 +65,38 @@ function EmbedPageBody({ target, onReturn }: { target: TranscriptTarget; onRetur
     }
     seekRef.current?.(seconds)
   }
+
+  // The row's duration can be missing; the transcript's last passage is a floor for it.
+  const duration = doc
+    ? doc.media.duration || (doc.blocks.at(-1)?.end_time ?? 0)
+    : 0
+
+  const exitClipping = () => {
+    setClipping(false)
+    clipEditor.stopLooping()
+    clipEditor.setShowSaveDialog(false)
+    clipEditor.setTitle("")
+    clipEditor.setDescription("")
+  }
+
+  const clipEditor = useClipEditor({
+    mediaDetailsId: target.mediaId,
+    duration,
+    currentTime,
+    onSeek: seek,
+    onSaved: exitClipping,
+    outputType,
+  })
+
+  const enterClipping = () => {
+    const start = Math.max(0, currentTime - 5)
+    const end = duration > 0 ? Math.min(duration, currentTime + 10) : currentTime + 10
+    clipEditor.setStartTime(start)
+    clipEditor.setEndTime(Math.max(end, start + MIN_CLIP_SECONDS))
+    setClipping(true)
+  }
+
+  const canClip = doc?.youtube_id != null && !offlineMode
 
   const rate = async (rating: number | null) => {
     if (!doc) return
@@ -113,6 +151,18 @@ function EmbedPageBody({ target, onReturn }: { target: TranscriptTarget; onRetur
                 Start over
               </button>
             </p>
+          )}
+          {canClip && (
+            <EmbedClipControls
+              editor={clipEditor}
+              clipping={clipping}
+              onEnter={enterClipping}
+              onExit={exitClipping}
+              duration={duration}
+              currentTime={currentTime}
+              outputType={outputType}
+              onOutputTypeChange={setOutputType}
+            />
           )}
           <MediaInfo
             title={doc.media.title ?? "Untitled"}

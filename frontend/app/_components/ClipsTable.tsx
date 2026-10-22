@@ -19,6 +19,7 @@ import { formatDuration, formatRelativeTime, getFullTimestamp } from "@/app/util
 import { Clip, SortDirection } from "@/app/types/ClipsOptions"
 import { useMediaPlayer } from "@/app/context/MediaPlayerContext"
 import { apiUrl } from "@/app/lib/api"
+import { sourceUrlAt } from "@/app/_components/transcript/transcript"
 
 /** Sort fields offered on mobile, where column headers aren't available. */
 const CLIP_SORT_OPTIONS = [{ key: "created_at", label: "Created" }]
@@ -84,6 +85,16 @@ export function ClipsTable({
 
   const handleJumpToSource = (clip: Clip) => {
     if (!clip.media_details_id) return
+
+    // A source with no file to play (cut from YouTube, or deleted since) opens where it came from.
+    if (clip.source_playable === false) {
+      if (clip.source_url) {
+        window.open(sourceUrlAt(clip.source_url, clip.start_time), "_blank", "noopener,noreferrer")
+      } else {
+        toast.error("The source of this clip can't be played")
+      }
+      return
+    }
 
     if (clip.media_type === "VIDEO") {
       onJumpToSourceVideo(clip)

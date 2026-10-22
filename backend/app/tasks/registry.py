@@ -13,6 +13,7 @@ from functools import partial
 from orchestrator import (
     ADD_SUBSCRIPTION_JOB,
     CLEANUP_JOB,
+    CLIP_FROM_SOURCE_JOB,
     CLIP_JOB,
     CLIP_RETRY_POLICY,
     DEFAULT_LANE,
@@ -39,7 +40,7 @@ from orchestrator import (
 
 
 def register_all_jobs() -> None:
-    from tasks.clips import run_clip_job
+    from tasks.clips import run_clip_job, run_source_clip_job
     from tasks.downloads import run_download_job
     from tasks.media import guard_resolving_placeholders, run_populate_media_details
     from tasks.scheduling import run_cleanup_job, run_direct_download_pipeline
@@ -70,6 +71,17 @@ def register_all_jobs() -> None:
             name=CLIP_JOB,
             fn=run_clip_job,
             lane=ML_LANE,
+            hooks_factory=ClipHooks,
+            retry_policy=CLIP_RETRY_POLICY,
+        )
+    )
+    # A clip of an item with no file is fetched from YouTube, so it is paced with the
+    # downloads rather than queued behind transcription on the ml lane.
+    register_job(
+        JobDefinition(
+            name=CLIP_FROM_SOURCE_JOB,
+            fn=run_source_clip_job,
+            lane=DOWNLOADS_LANE,
             hooks_factory=ClipHooks,
             retry_policy=CLIP_RETRY_POLICY,
         )

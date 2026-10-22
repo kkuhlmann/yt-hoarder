@@ -12,8 +12,16 @@ from dependencies import (
     get_required_user_id,
 )
 from logger import logger
-from models import Clip, TaskRecord, TaskStatus, TaskType
-from orchestrator import CLIP_JOB, JobSpec, orch
+from models import (
+    LIBRARY_MEDIA_TYPES,
+    Clip,
+    MediaDetails,
+    MediaType,
+    TaskRecord,
+    TaskStatus,
+    TaskType,
+)
+from orchestrator import CLIP_FROM_SOURCE_JOB, CLIP_JOB, JobSpec, orch
 from progress_publisher import publish_status_change
 from repositories import clip_access as ca_repo
 from repositories import clips as clips_repo
@@ -23,6 +31,7 @@ from repositories import settings as settings_repo
 from repositories import task_records as tr_repo
 from repositories.task_records import DIRECT_DOWNLOAD_PRIORITY
 from routers.sharing_routes import SharingConfig, register_sharing_routes
+from ytdlp.urls import youtube_video_id
 
 router = APIRouter()
 
@@ -35,6 +44,9 @@ class ClipCreate(BaseModel):
     description: str | None = None
     start_time: float
     end_time: float
+    # The clip's output type. Required for a source with no file, which can be clipped
+    # as either; a source with a file always yields its own type.
+    media_type: MediaType | None = None
 
 
 class ClipUpdate(BaseModel):
@@ -56,6 +68,31 @@ class BulkClipDeleteRequest(BaseModel):
     """Request model for deleting multiple clips in one call."""
 
     clip_ids: list[int]
+
+
+def _clip_output_type(
+    source_media: MediaDetails, requested: MediaType | None, *, from_source: bool
+) -> MediaType:
+    """The type of clip to make, or a 400 explaining why this source can't give it."""
+    if not from_source:
+        if requested is not None and requested != source_media.media_type:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f'A clip of this media is always {source_media.media_type.value}',
+            )
+        return source_media.media_type
+
+    if youtube_video_id(source_media.url) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Only YouTube sources can be clipped without a local file',
+        )
+    if requested not in LIBRARY_MEDIA_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Choose audio or video for a clip fetched from YouTube',
+        )
+    return requested
 
 
 @router.get(
@@ -84,10 +121,16 @@ async def get_clip_stats(effective_user_id: int | None = Depends(get_effective_u
 async def create_clip(
     request: Request, clip_request: ClipCreate, user_id: int = Depends(get_required_user_id)
 ):
-    """Create a new clip from a media file.
+    """Create a new clip from a media item.
 
     Validates the time range and source media, creates a Clip record,
     copies source metadata, and queues a background job to generate the clip file.
+
+    A source the app holds a file of is cut from that file, and the clip takes the
+    source's type; `media_type`, if sent, must match it. A source with no file
+    (a transcript-only item, or deleted media that kept its transcript) is cut from
+    YouTube instead: it must be a YouTube video, and `media_type` (`AUDIO` for an MP3,
+    `VIDEO` for an MP4) is required.
     """
     source_media = await get_entity_or_404(
         md_repo.get_media_details_by_id,
@@ -98,11 +141,8 @@ async def create_clip(
         ),
     )
 
-    if not source_media.file_path:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail='Source media has no file to clip from',
-        )
+    from_source = not md_repo.has_playable_file(source_media)
+    output_type = _clip_output_type(source_media, clip_request.media_type, from_source=from_source)
 
     if clip_request.start_time < 0:
         raise HTTPException(
@@ -129,7 +169,7 @@ async def create_clip(
         task_type=TaskType.CLIP_GENERATION,
         title=clip_request.title,
         channel=source_media.channel,
-        media_type=source_media.media_type,
+        media_type=output_type,
         status=TaskStatus.QUEUED,
         status_message='Waiting to generate clip...',
         user_id=user_id,
@@ -144,7 +184,7 @@ async def create_clip(
         start_time=clip_request.start_time,
         end_time=clip_request.end_time,
         duration=duration,
-        media_type=source_media.media_type,
+        media_type=output_type,
         status=TaskStatus.QUEUED,
         task_record_id=task_record.id,
         source_title=source_media.title,
@@ -158,15 +198,17 @@ async def create_clip(
         'media_details_id': clip_request.media_details_id,
         'start_time': clip_request.start_time,
         'end_time': clip_request.end_time,
-        'media_type': source_media.media_type.value,
+        'media_type': output_type.value,
         'user_id': user_id,
     }
+    if from_source:
+        clip_data['source_url'] = source_media.url
 
     seq = await tr_repo.get_next_queue_sequence()
     await tr_repo.update_one(task_id, {'queue_sequence': seq})
     await orch.submit(
         JobSpec(
-            job_name=CLIP_JOB,
+            job_name=CLIP_FROM_SOURCE_JOB if from_source else CLIP_JOB,
             args=(clip_data,),
             task_id=task_id,
             priority=DIRECT_DOWNLOAD_PRIORITY,
