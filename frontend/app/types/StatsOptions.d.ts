@@ -64,6 +64,25 @@ export interface TranscriptionStats {
   total_blocks: number
 }
 
+export interface TranscriptStorageByChannel {
+  channel: string
+  total_bytes: number
+  text_bytes: number
+  embedding_bytes: number
+  transcript_count: number
+  block_count: number
+}
+
+// On-disk bytes, indexes included; channels add up to total_bytes.
+export interface TranscriptStorage {
+  total_bytes: number
+  text_bytes: number
+  embedding_bytes: number
+  // Whole-database size, sent only for the admin all-users view.
+  database_bytes: number | null
+  by_channel: TranscriptStorageByChannel[]
+}
+
 export interface MostReplayed {
   id: number
   title: string

@@ -18,6 +18,7 @@ from ytdlp.options import (
     _get_pot_extractor_args,
     audio_quality_to_abr_cap,
     build_audio_selection,
+    create_source_clip_options,
     create_ydl_options,
     get_stable_impersonate_target,
 )
@@ -291,3 +292,51 @@ def test_authenticated_downloads_pin_one_fingerprint(download_options, fake_targ
     monkeypatch.setattr('ytdlp.options.get_random_impersonate_target', lambda: 'RANDOM-SENTINEL')
     options = download_options(cookie_file='/tmp/copy.txt')
     assert options['impersonate'] == 'chrome-133:macos-15'
+
+
+# ------------------------------------------------------------------ clips from source
+#
+# A clip of an item with no file only *resolves* streams through yt-dlp; ffmpeg does the
+# transfer. So it presents itself exactly as a download does, but like metadata
+# extraction it carries the request sleep and never the transfer cap.
+
+
+@pytest.fixture
+def source_clip_options(monkeypatch):
+    def build(*, audio_only=False, cookie_file=None, **setting_overrides) -> dict:
+        monkeypatch.setattr(
+            'ytdlp.options.settings_repo.sync_get_settings',
+            lambda: AppSettings(**setting_overrides),
+        )
+        return create_source_clip_options(URL, audio_only=audio_only, cookie_file=cookie_file)
+
+    return build
+
+
+def test_source_clip_uses_the_download_player_clients(source_clip_options):
+    options = source_clip_options()
+    assert options['extractor_args']['youtube']['player_client'] == DEFAULT_PLAYER_CLIENTS
+    assert 'cookiefile' not in options
+
+
+def test_source_clip_with_cookies_pins_one_fingerprint(source_clip_options, fake_targets):
+    options = source_clip_options(cookie_file='/tmp/copy.txt')
+    assert options['cookiefile'] == '/tmp/copy.txt'
+    assert options['extractor_args']['youtube']['player_client'] == DEFAULT_COOKIES_PLAYER_CLIENTS
+    assert options['impersonate'] == 'chrome-133:macos-15'
+
+
+def test_source_clip_carries_the_request_sleep_but_no_transfer_cap(source_clip_options):
+    options = source_clip_options(request_sleep_seconds=3, download_rate_limit_kbps=512)
+    assert options['sleep_interval_requests'] == 3
+    assert 'ratelimit' not in options
+
+
+def test_source_clip_formats_skip_streams_ffmpeg_cannot_open(source_clip_options):
+    for options in (source_clip_options(), source_clip_options(audio_only=True)):
+        for alternative in options['format'].split('/'):
+            assert '[protocol!=http_dash_segments]' in alternative
+
+
+def test_source_clip_audio_never_asks_for_video(source_clip_options):
+    assert 'video' not in source_clip_options(audio_only=True)['format']

@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest"
-import { formatCount, formatDurationLong, formatPeriodLabel } from "./format"
+import { formatCount, formatDurationLong, formatPeriodLabel, formatShare } from "./format"
+
+describe("formatShare", () => {
+  it.each([
+    [1, 0, ""],
+    [1, -5, ""],
+    [0, 100, "0%"],
+    [1, 10_000, "<0.1%"],
+    [1, 1000, "0.1%"],
+    [45, 1000, "4.5%"],
+    [7, 10, "70%"],
+    [1, 1, "100%"],
+  ])("formatShare(%o, %o) -> %s", (part, whole, expected) => {
+    expect(formatShare(part, whole)).toBe(expected)
+  })
+})
 
 describe("formatCount", () => {
   it.each([

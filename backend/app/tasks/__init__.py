@@ -6,7 +6,7 @@
 # lazily inside the spawned ML child (orchestrator.child_main), keeping
 # faster-whisper out of the main process entirely.
 
-from tasks.clips import run_clip_job
+from tasks.clips import run_clip_job, run_source_clip_job
 from tasks.downloads import run_download_job
 from tasks.media import (
     create_download_and_transcript_chains_impl,
@@ -46,6 +46,7 @@ __all__ = [
     'run_direct_download_pipeline',
     'run_download_job',
     'run_populate_media_details',
+    'run_source_clip_job',
     'run_sprites_job',
     'run_subscription_pipeline',
 ]

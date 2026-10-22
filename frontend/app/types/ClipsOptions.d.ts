@@ -12,6 +12,10 @@ export type Clip = {
   created_at: string
   source_title?: string
   source_channel?: string
+  /** Set by the clip list: the source item's URL, null once the source is gone. */
+  source_url?: string | null
+  /** Set by the clip list: whether the app holds the source's file to play it from. */
+  source_playable?: boolean
 }
 
 export type ClipStats = {

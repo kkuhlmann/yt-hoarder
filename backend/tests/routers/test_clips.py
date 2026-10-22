@@ -1,22 +1,26 @@
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from sqlalchemy import update
 from sqlmodel import select
 
 from database import db
 from models import Clip, MediaDetails, MediaType, TaskRecord, TaskStatus
+from orchestrator import CLIP_FROM_SOURCE_JOB, CLIP_JOB
+
+
+def _update_media(media_id: int, **values) -> None:
+    session = db.get_sync_session()
+    try:
+        session.execute(update(MediaDetails).where(MediaDetails.id == media_id).values(**values))
+        session.commit()
+    finally:
+        session.close()
 
 
 def _set_media_file_path(media_id: int, file_path: str) -> None:
     """Set file_path on a MediaDetails row so the clip endpoint accepts it."""
-    session = db.get_sync_session()
-    try:
-        session.execute(
-            update(MediaDetails).where(MediaDetails.id == media_id).values(file_path=file_path)
-        )
-        session.commit()
-    finally:
-        session.close()
+    _update_media(media_id, file_path=file_path)
 
 
 def _get_admin_id(client) -> int:
@@ -60,6 +64,183 @@ async def test_create_clip_sets_task_record_user_id(monkeypatch, authenticated_c
     assert task_record.user_id == admin_id, (
         f'Expected TaskRecord.user_id={admin_id}, got {task_record.user_id}'
     )
+
+
+# ============================================================
+# Clips of items with no file, fetched from YouTube
+# ============================================================
+
+YOUTUBE_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+
+
+@pytest.fixture
+def submitted(monkeypatch):
+    """The orchestrator's submit, replaced so the JobSpec can be inspected."""
+    submit = AsyncMock()
+    monkeypatch.setattr('routers.clips.orch.submit', submit)
+    monkeypatch.setattr('routers.clips.publish_status_change', MagicMock())
+    return submit
+
+
+def _post_clip(client, **extra):
+    return client.post(
+        '/clips',
+        json={'media_details_id': 1, 'title': 'Clip', 'start_time': 1.0, 'end_time': 6.0, **extra},
+    )
+
+
+def _clip_and_task(clip_id: int, task_id: str) -> tuple[Clip, TaskRecord]:
+    session = db.get_sync_session()
+    try:
+        clip = session.execute(select(Clip).where(Clip.id == clip_id)).scalar_one()
+        task = session.execute(select(TaskRecord).where(TaskRecord.task_id == task_id)).scalar_one()
+        return clip, task
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize('output', [MediaType.VIDEO, MediaType.AUDIO])
+def test_transcript_only_item_is_clipped_from_youtube(authenticated_client, submitted, output):
+    _update_media(1, media_type=MediaType.TRANSCRIPT, file_path=None)
+
+    response = _post_clip(authenticated_client, media_type=output.value)
+
+    assert response.status_code == 201, response.text
+    spec = submitted.await_args.args[0]
+    assert spec.job_name == CLIP_FROM_SOURCE_JOB
+    payload = spec.args[0]
+    assert payload['source_url'] == YOUTUBE_URL
+    assert payload['media_type'] == output.value
+    clip, task = _clip_and_task(response.json()['id'], response.json()['task_id'])
+    assert clip.media_type == output
+    assert task.media_type == output
+
+
+def test_staged_whisper_audio_is_never_clipped(authenticated_client, submitted):
+    """Mid-chain, a transcript-only row's file_path is the audio staged for Whisper."""
+    _update_media(
+        1,
+        media_type=MediaType.TRANSCRIPT,
+        status=TaskStatus.POSTPROCESSING,
+        file_path='/data/audio/.transcript-only/abc.m4a',
+    )
+
+    response = _post_clip(authenticated_client, media_type='AUDIO')
+
+    assert response.status_code == 201, response.text
+    assert submitted.await_args.args[0].job_name == CLIP_FROM_SOURCE_JOB
+
+
+def test_deleted_media_that_kept_its_transcript_is_clipped_from_youtube(
+    authenticated_client, submitted
+):
+    _update_media(1, status=TaskStatus.DELETED, file_path=None)
+
+    response = _post_clip(authenticated_client, media_type='VIDEO')
+
+    assert response.status_code == 201, response.text
+    assert submitted.await_args.args[0].job_name == CLIP_FROM_SOURCE_JOB
+
+
+def test_no_file_clip_requires_an_output_type(authenticated_client, submitted):
+    _update_media(1, media_type=MediaType.TRANSCRIPT, file_path=None)
+
+    response = _post_clip(authenticated_client)
+
+    assert response.status_code == 400
+    assert 'audio or video' in response.json()['detail']
+    submitted.assert_not_awaited()
+
+
+def test_no_file_clip_rejects_a_transcript_output(authenticated_client, submitted):
+    _update_media(1, media_type=MediaType.TRANSCRIPT, file_path=None)
+
+    assert _post_clip(authenticated_client, media_type='TRANSCRIPT').status_code == 400
+
+
+def test_no_file_clip_requires_a_youtube_source(authenticated_client, submitted):
+    _update_media(
+        1, media_type=MediaType.TRANSCRIPT, file_path=None, url='https://vimeo.com/76979871'
+    )
+
+    response = _post_clip(authenticated_client, media_type='VIDEO')
+
+    assert response.status_code == 400
+    assert 'YouTube' in response.json()['detail']
+    submitted.assert_not_awaited()
+
+
+def test_local_clip_is_cut_from_the_file(authenticated_client, submitted):
+    _set_media_file_path(1, '/tmp/fake-source.m4a')
+
+    response = _post_clip(authenticated_client)
+
+    assert response.status_code == 201, response.text
+    spec = submitted.await_args.args[0]
+    assert spec.job_name == CLIP_JOB
+    assert 'source_url' not in spec.args[0]
+    clip, _task = _clip_and_task(response.json()['id'], response.json()['task_id'])
+    assert clip.media_type == MediaType.AUDIO
+
+
+def test_local_clip_rejects_a_different_output_type(authenticated_client, submitted):
+    """A file is cut as what it is; the field must not be silently ignored."""
+    _set_media_file_path(1, '/tmp/fake-source.m4a')
+
+    response = _post_clip(authenticated_client, media_type='VIDEO')
+
+    assert response.status_code == 400
+    submitted.assert_not_awaited()
+
+
+def _insert_clip_of(media_details_id: int, user_id: int) -> int:
+    session = db.get_sync_session()
+    try:
+        clip = Clip(
+            media_details_id=media_details_id,
+            title='Sourced',
+            start_time=12.0,
+            end_time=20.0,
+            media_type=MediaType.AUDIO,
+            status=TaskStatus.COMPLETE,
+            user_id=user_id,
+        )
+        session.add(clip)
+        session.commit()
+        return clip.id
+    finally:
+        session.close()
+
+
+def _listed_clip(client, clip_id: int) -> dict:
+    records = client.get('/clips').json()['records']
+    return next(r for r in records if r['id'] == clip_id)
+
+
+def test_clip_list_marks_a_source_with_no_file(authenticated_client):
+    _update_media(1, media_type=MediaType.TRANSCRIPT, file_path=None)
+    clip_id = _insert_clip_of(1, _get_admin_id(authenticated_client))
+
+    record = _listed_clip(authenticated_client, clip_id)
+
+    assert record['source_url'] == YOUTUBE_URL
+    assert record['source_playable'] is False
+
+
+def test_clip_list_marks_a_source_the_app_holds(authenticated_client):
+    _set_media_file_path(1, '/tmp/fake-source.m4a')
+    clip_id = _insert_clip_of(1, _get_admin_id(authenticated_client))
+
+    assert _listed_clip(authenticated_client, clip_id)['source_playable'] is True
+
+
+def test_clip_list_handles_a_clip_whose_source_is_gone(authenticated_client):
+    clip_id = _insert_clip(None, user_id=_get_admin_id(authenticated_client))
+
+    record = _listed_clip(authenticated_client, clip_id)
+
+    assert record['source_url'] is None
+    assert record['source_playable'] is False
 
 
 def _insert_clip(

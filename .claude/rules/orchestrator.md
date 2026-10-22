@@ -227,3 +227,33 @@ code can't state:
 - **The staging sweep (`cleanup_orphaned_transcript_staging`) keeps an in-flight item's files
   regardless of age.** A Whisper backlog on the serial ml lane can legitimately outlast
   `cleanup_age_hours`.
+
+## Clips from the source
+
+An item with no file (transcript-only, or deleted media that kept its transcript) is clipped from
+YouTube by `CLIP_FROM_SOURCE_JOB` (`run_source_clip_job`, `tasks/clips.py`). The router picks it
+whenever `has_playable_file` is false, never on a bare `file_path` check: a transcript-only row
+mid-chain carries its *staged Whisper audio* as `file_path`, which is neither the media nor kept.
+
+- **yt-dlp only resolves the streams; the app's own ffmpeg fetches and cuts the section.** yt-dlp's
+  `download_ranges` runs ffmpeg under a blocking `proc.wait()` with no progress hooks, so a cancel
+  could not land until the fetch finished, and a precise cut there needs `force_keyframes_at_cuts`,
+  which encodes to the container's defaults, so an MP3 takes a second lossy pass. Through
+  `run_ffmpeg_cancellable` a cancel kills the process group like any clip's, and the output is
+  encoded once, exactly as a clip of a local file is.
+- **ffmpeg must be handed what yt-dlp would send.** `_source_clip_inputs` copies `FFmpegFD`
+  (`yt_dlp/downloader/external.py`): each stream's `http_headers` as `-headers`, and the session's
+  cookies for its URL as `-cookies`. The command is therefore never logged — it holds signed URLs
+  and cookies.
+- **ffmpeg must also wait as yt-dlp would.** YouTube holds a session's streams back for the length
+  of the pre-roll ad it would have shown, and 403s any fetch before then. yt-dlp records the moment
+  as each format's `available_at` and its downloader sleeps until it, which is why its own range
+  download works where a fetch straight after `extract_info` fails. `_wait_until_streams_served`
+  copies the sleep on the job's cancel event. Measured 2026-10-21: a ~3s wait, and fetches of
+  `web_embedded` streams made before it 403'd.
+- **It runs on the downloads lane**, paced with the downloads, since it talks to YouTube. On `ml`
+  it would wait behind Whisper. It is still a `CLIP_GENERATION` task with `ClipHooks`, so recovery
+  and the retry ceiling treat it as any clip.
+- **Its options carry `sleep_interval_requests` but never `ratelimit`**, the same split as
+  metadata extraction: yt-dlp transfers nothing. The format selectors exclude
+  `http_dash_segments`, a manifest only yt-dlp's own downloader can assemble.

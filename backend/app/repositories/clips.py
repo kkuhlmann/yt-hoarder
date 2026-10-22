@@ -6,6 +6,7 @@ from sqlmodel import select
 from database import db
 from logger import logger
 from models import Clip, ClipAccess, MediaType
+from repositories import media_details as md_repo
 from repositories.pagination import page_count
 from services.cleanup import delete_file
 
@@ -107,14 +108,28 @@ async def get_all_clips(
 
         result = await session.execute(stmt)
         records = result.scalars().all()
-
         serialized_records = [record.model_dump(mode='json') for record in records]
 
-        return {
-            'count_records': count_records,
-            'page_count': page_count(count_records, page_size),
-            'records': serialized_records,
-        }
+    await _add_source_info(serialized_records)
+    return {
+        'count_records': count_records,
+        'page_count': page_count(count_records, page_size),
+        'records': serialized_records,
+    }
+
+
+async def _add_source_info(records: list[dict[str, Any]]) -> None:
+    """Annotate serialized clips with their source's URL and whether the app holds its file.
+
+    A clip whose source has no file (fetched from YouTube, or whose source was deleted
+    since) jumps to the source URL rather than to a local stream that doesn't exist.
+    """
+    source_ids = {r['media_details_id'] for r in records if r['media_details_id'] is not None}
+    sources = {m.id: m for m in await md_repo.get_media_details_by_ids(list(source_ids))}
+    for record in records:
+        source = sources.get(record['media_details_id'])
+        record['source_url'] = source.url if source else None
+        record['source_playable'] = bool(source and md_repo.has_playable_file(source))
 
 
 async def update_clip(id: int, updated_params: dict) -> Clip | None:

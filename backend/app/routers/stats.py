@@ -89,6 +89,26 @@ async def get_transcription_stats(
     )
 
 
+@router.get('/transcript-storage', status_code=status.HTTP_200_OK)
+async def get_transcript_storage_stats(
+    channel: str | None = Query(default=None),
+    playlist_id: int | None = Depends(checked_playlist_id),
+    effective_user_id: int | None = Depends(get_effective_user_id),
+):
+    """Get the database space transcripts take, by channel.
+
+    Sizes are the real on-disk footprint, indexes included: `text_bytes` covers the
+    transcript text and its keyword-search index, `embedding_bytes` the embeddings and
+    their vector index. Each channel gets its proportional share, so `by_channel` adds up
+    to `total_bytes`. `database_bytes`, the size of the whole database, is set only in the
+    admin all-users view. Figures are cached, so they can trail recent transcripts by
+    several minutes.
+    """
+    return await stats_repo.get_transcript_storage_stats(
+        channel=channel, playlist_id=playlist_id, user_id=effective_user_id
+    )
+
+
 @router.get('/engagement', status_code=status.HTTP_200_OK)
 async def get_engagement_stats(
     channel: str | None = Query(default=None),

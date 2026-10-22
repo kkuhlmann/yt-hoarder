@@ -7,14 +7,25 @@ import { useClipRegion } from "./useClipRegion"
 /** Shortest selection the backend will accept, and the floor the UI keeps. */
 export const MIN_CLIP_SECONDS = 1
 
+export type ClipOutputType = "AUDIO" | "VIDEO"
+
+export type ClipEditor = ReturnType<typeof useClipEditor>
+
 interface UseClipEditorProps {
   mediaDetailsId: number
   duration: number
   currentTime: number
-  mediaRef: RefObject<HTMLMediaElement | null>
+  /**
+   * The element playing the media, which the loop preview drives directly. Omit it for a
+   * player with no element (the YouTube embed): the loop then follows `currentTime` and
+   * moves playback through `onSeek`, which must also start it playing.
+   */
+  mediaRef?: RefObject<HTMLMediaElement | null>
   onSeek: (time: number) => void
   onSaved: () => void
   initialEnd?: number
+  /** Sent as the clip's type. Only an item with no file takes one; others clip as what they are. */
+  outputType?: ClipOutputType
 }
 
 export function useClipEditor({
@@ -25,6 +36,7 @@ export function useClipEditor({
   onSeek,
   onSaved,
   initialEnd,
+  outputType,
 }: UseClipEditorProps) {
   const [startTime, setStartTime] = useState(0)
   const [rawEndTime, setEndTime] = useState(initialEnd ?? Math.min(duration || 60, 30))
@@ -60,7 +72,7 @@ export function useClipEditor({
 
   // Loop preview: snap back to the region start whenever playback leaves the region.
   useEffect(() => {
-    if (!isLooping || !mediaRef.current) return
+    if (!isLooping || !mediaRef?.current) return
 
     loopIntervalRef.current = setInterval(() => {
       const el = mediaRef.current
@@ -77,6 +89,12 @@ export function useClipEditor({
       }
     }
   }, [isLooping, startTime, endTime, mediaRef])
+
+  // The same loop for a player with no element, from the position it reports.
+  useEffect(() => {
+    if (!isLooping || mediaRef) return
+    if (currentTime >= endTime || currentTime < startTime) onSeek(startTime)
+  }, [isLooping, mediaRef, currentTime, startTime, endTime, onSeek])
 
   const handleSetStartFromCurrent = () => {
     const newStart = Math.max(0, currentTime)
@@ -99,7 +117,7 @@ export function useClipEditor({
   const toggleLoop = useCallback(() => {
     if (!isLooping) {
       onSeek(startTime)
-      mediaRef.current?.play()
+      mediaRef?.current?.play()
     }
     setIsLooping(!isLooping)
   }, [isLooping, startTime, onSeek, mediaRef])
@@ -121,6 +139,7 @@ export function useClipEditor({
         description: description.trim() || null,
         start_time: startTime,
         end_time: endTime,
+        ...(outputType && { media_type: outputType }),
       })
       if (response.status === 201) {
         toast.success("Clip creation started!")

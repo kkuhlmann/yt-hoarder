@@ -285,6 +285,64 @@ def _throttling_options(app_settings) -> dict:
     return options
 
 
+def _client_options(url: str, cookie_file: str | None, app_settings) -> dict:
+    """Who yt-dlp presents itself as: impersonation target, cookies, YouTube player clients."""
+    options = {}
+    # Randomizing the fingerprint is cover for an anonymous request and a liability for
+    # an authenticated one: yt-dlp keeps the extractor's per-client User-Agent under
+    # impersonation, so a rotating TLS fingerprint under one account is a mismatch that
+    # repeats on every job.
+    impersonate_target = (
+        get_stable_impersonate_target() if cookie_file else get_random_impersonate_target()
+    )
+    if impersonate_target:
+        logger.debug(f'Using impersonation target: {impersonate_target}')
+        options['impersonate'] = impersonate_target
+
+    if cookie_file:
+        options['cookiefile'] = cookie_file
+
+    if is_youtube_url(url):
+        player_clients = (
+            app_settings.cookies_player_client if cookie_file else app_settings.player_client
+        )
+        options['extractor_args'] = {
+            'youtube': {'player_client': player_clients},
+            **_get_pot_extractor_args(),
+        }
+    return options
+
+
+# ffmpeg reads the chosen streams straight from their URLs, so a fragmented DASH manifest
+# (which only yt-dlp's own downloader can assemble) is excluded.
+_DIRECT_STREAM = '[protocol!=http_dash_segments]'
+_SOURCE_CLIP_AUDIO_FORMAT = f'bestaudio{_DIRECT_STREAM}/best{_DIRECT_STREAM}'
+# Capped because the clip is re-encoded with libx264 within the clip job's timeout.
+_SOURCE_CLIP_VIDEO_FORMAT = (
+    f'bestvideo[height<=1080]{_DIRECT_STREAM}+bestaudio{_DIRECT_STREAM}'
+    f'/best[height<=1080]{_DIRECT_STREAM}/best{_DIRECT_STREAM}'
+)
+
+
+def create_source_clip_options(url: str, *, audio_only: bool, cookie_file: str | None) -> dict:
+    """Options for resolving the streams a clip of a no-file item is cut from.
+
+    Extraction only: ffmpeg fetches the section itself, so `ratelimit`, which caps a
+    yt-dlp transfer, is left out, as it is for metadata extraction in ytdlp/info.py.
+    """
+    app_settings = settings_repo.sync_get_settings()
+    options = {
+        'format': _SOURCE_CLIP_AUDIO_FORMAT if audio_only else _SOURCE_CLIP_VIDEO_FORMAT,
+        'noplaylist': True,
+        'logger': YtDlLogger(),
+        'quiet': True,
+    }
+    if app_settings.request_sleep_seconds > 0:
+        options['sleep_interval_requests'] = app_settings.request_sleep_seconds
+    options.update(_client_options(url, cookie_file, app_settings))
+    return options
+
+
 def _media_format_options(
     download_job: DownloadJob | DownloadJobDTO,
     fmt: str,
@@ -438,17 +496,6 @@ def create_ydl_options(
         )
         download_options.update(format_options)
 
-    # Randomizing the fingerprint is cover for an anonymous request and a liability for
-    # an authenticated one: yt-dlp keeps the extractor's per-client User-Agent under
-    # impersonation, so a rotating TLS fingerprint under one account is a mismatch that
-    # repeats on every job.
-    impersonate_target = (
-        get_stable_impersonate_target() if cookie_file else get_random_impersonate_target()
-    )
-    if impersonate_target:
-        logger.debug(f'create_ydl_options using impersonation target: {impersonate_target}')
-        download_options['impersonate'] = impersonate_target
-
     if download_job.generate_transcript and with_subtitles and not transcript_only:
         # Captions are best-effort. A video with no track goes on without one; a listed
         # track whose fetch fails raises instead, which _download_with_fallback answers by
@@ -459,18 +506,7 @@ def create_ydl_options(
     app_settings = settings_repo.sync_get_settings()
 
     download_options.update(_throttling_options(app_settings))
-
-    if cookie_file:
-        download_options['cookiefile'] = cookie_file
-
-    if is_youtube_url(download_job.url):
-        player_clients = (
-            app_settings.cookies_player_client if cookie_file else app_settings.player_client
-        )
-        download_options['extractor_args'] = {
-            'youtube': {'player_client': player_clients},
-            **_get_pot_extractor_args(),
-        }
+    download_options.update(_client_options(download_job.url, cookie_file, app_settings))
 
     if download_job.audio_only:
         save_path = os.path.join(settings.storage.audio_path, sub_directory)

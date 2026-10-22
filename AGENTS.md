@@ -14,7 +14,7 @@ one covering the area they're about to touch.
 
 | Read when touching | File | Covers |
 |---|---|---|
-| `app/orchestrator/`, `app/tasks/` | `.claude/rules/orchestrator.md` | Deferral rules, lane resizing, cron retargeting, fan-out throttling, the RESOLVING placeholder, lifecycle hooks, sprite generation, the transcript-only chain |
+| `app/orchestrator/`, `app/tasks/` | `.claude/rules/orchestrator.md` | Deferral rules, lane resizing, cron retargeting, fan-out throttling, the RESOLVING placeholder, lifecycle hooks, sprite generation, the transcript-only chain, clips cut from YouTube |
 | `app/repositories/`, `app/routers/`, `app/services/`, `models.py`, `migrations/` | `.claude/rules/backend-domains.md` | The access-repo factory, `/semantic/search` scoping, embeddings, password recovery, migrations, the seeded `app_settings` row, transcript-only media in queries |
 | `frontend/` | `.claude/rules/frontend.md` | Next 16 / Turbopack / Tailwind v4 toolchain, component and hook constraints, `useAudioAnalyser`, the media page and transcript panel, the YouTube embed, Vitest |
 | Dockerfiles, compose files, workflows, `Taskfile.yml`, `setup.sh`, `config.py` | `.claude/rules/deployment.md` | Taskfile container traps, multi-arch images and GHCR, config plumbing |

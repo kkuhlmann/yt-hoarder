@@ -4,11 +4,13 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { apiUrl } from "@/app/lib/api"
 import axios from "axios"
 import { useAdmin } from "@/app/context/AdminContext"
+import { useFetchEffect } from "@/app/_hooks/useFetchEffect"
 import type {
   LibraryOverview,
   StorageStats,
   DownloadsOverTime,
   TranscriptionStats,
+  TranscriptStorage,
   EngagementStats,
   ClipsStats,
   DownloadSuccessRate,
@@ -17,8 +19,8 @@ import type {
   StatsFilter,
 } from "@/app/types/StatsOptions"
 
-// Owns all stats-page data fetching: the eight endpoint responses, the
-// loading/error state, and the filter/granularity params that drive refetches.
+// Owns all stats-page data fetching: the endpoint responses, the loading/error
+// state, and the filter/granularity params that drive refetches.
 export function useStats() {
   const [overview, setOverview] = useState<LibraryOverview | null>(null)
   const [storage, setStorage] = useState<StorageStats | null>(null)
@@ -28,6 +30,8 @@ export function useStats() {
   const [clips, setClips] = useState<ClipsStats | null>(null)
   const [successRate, setSuccessRate] = useState<DownloadSuccessRate | null>(null)
   const [heatmap, setHeatmap] = useState<DownloadActivityHeatmap | null>(null)
+  const [transcriptStorage, setTranscriptStorage] = useState<TranscriptStorage | null>(null)
+  const [transcriptStorageFailed, setTranscriptStorageFailed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [granularity, setGranularity] = useState<Granularity>("day")
@@ -77,6 +81,29 @@ export function useStats() {
     fetchAll()
   }, [filter, adminParam]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Kept out of the Promise.all above: once the server's snapshot expires, the next
+  // request scans every transcript row, and the rest of the page shouldn't wait on it.
+  const loadTranscriptStorage = useCallback(
+    (signal: AbortSignal) =>
+      axios
+        .get(apiUrl("/stats/transcript-storage"), { params: getFilterParams(), signal })
+        .then((res) => {
+          setTranscriptStorage(res.data)
+          setTranscriptStorageFailed(false)
+        })
+        .catch((err) => {
+          if (axios.isCancel(err)) return
+          console.error("Failed to fetch transcript storage:", err)
+          setTranscriptStorageFailed(true)
+        }),
+    [getFilterParams]
+  )
+  const { isLoading: transcriptStorageLoading } = useFetchEffect(
+    loadTranscriptStorage,
+    [loadTranscriptStorage],
+    { initialLoading: true }
+  )
+
   // Refetch only time-series data when granularity changes (skip initial render).
   // A ref, not state: nothing renders it, and as state it made the skip itself a
   // synchronous setState inside the effect.
@@ -113,6 +140,9 @@ export function useStats() {
     clips,
     successRate,
     heatmap,
+    transcriptStorage,
+    transcriptStorageLoading,
+    transcriptStorageFailed,
     loading,
     error,
     granularity,

@@ -212,11 +212,7 @@ async def get_media_transcript(
         if media_details.transcript_task_record_id
         else None
     )
-    playable = (
-        media_details.status == TaskStatus.COMPLETE
-        and bool(media_details.file_path)
-        and media_details.media_type != MediaType.TRANSCRIPT
-    )
+    playable = md_repo.has_playable_file(media_details)
     return {
         'media': {
             'id': media_details.id,

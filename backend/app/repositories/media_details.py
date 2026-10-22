@@ -854,11 +854,34 @@ async def get_deleted_media_by_url_type_owner(
         return result.scalar_one_or_none()
 
 
+def has_playable_file(media: MediaDetails) -> bool:
+    """Whether the app holds a finished file of this item it can stream or cut.
+
+    A transcript-only item never does, even mid-chain while its `file_path` holds the
+    audio staged for Whisper: that file is not the media and is deleted once the
+    transcript lands.
+    """
+    return (
+        media.status == TaskStatus.COMPLETE
+        and bool(media.file_path)
+        and media.media_type != MediaType.TRANSCRIPT
+    )
+
+
 async def get_media_details_by_id(id: int) -> MediaDetails | None:
     async with db.get_async_session() as session:
         stmt = select(MediaDetails).where(MediaDetails.id == id)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+
+async def get_media_details_by_ids(ids: Sequence[int]) -> list[MediaDetails]:
+    if not ids:
+        return []
+    async with db.get_async_session() as session:
+        stmt = select(MediaDetails).where(MediaDetails.id.in_(ids))
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
 
 
 async def get_media_details_by_transcript_task_record_id(

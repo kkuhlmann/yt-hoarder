@@ -6,6 +6,13 @@ interface UseZoomProps {
   selectionEnd: number
   minZoom?: number // 1 = full view
   maxZoom?: number // e.g., 20 = 20x zoom
+  /**
+   * Re-centre on the selection with every zoom step, rather than zooming about the
+   * current centre. For a surface with no waveform, where the slider is the only view and
+   * a selection zoomed out of it leaves both handles pinned to an edge. Only a zoom step
+   * moves the view, never a change to the selection, so a dragged handle can't drag it.
+   */
+  anchorOnSelection?: boolean
 }
 
 interface UseZoomReturn {
@@ -27,6 +34,7 @@ export function useZoom({
   selectionEnd,
   minZoom = 1,
   maxZoom = 20,
+  anchorOnSelection = false,
 }: UseZoomProps): UseZoomReturn {
   const [zoomLevel, setZoomLevel] = useState(1)
   // Null means "centred". Seeding from `duration` here instead would capture the
@@ -58,12 +66,19 @@ export function useZoom({
 
   const isZoomed = zoomLevel > 1
 
+  const anchorToSelection = useCallback(() => {
+    if (anchorOnSelection && selectionEnd > selectionStart) {
+      setViewportCenter((selectionStart + selectionEnd) / 2)
+    }
+  }, [anchorOnSelection, selectionStart, selectionEnd])
+
   const zoomIn = useCallback(() => {
     setZoomLevel((current) => {
       const nextStep = ZOOM_STEPS.find((step) => step > current)
       return nextStep ? Math.min(nextStep, maxZoom) : current
     })
-  }, [maxZoom])
+    anchorToSelection()
+  }, [maxZoom, anchorToSelection])
 
   const zoomOut = useCallback(() => {
     setZoomLevel((current) => {
@@ -71,7 +86,8 @@ export function useZoom({
       const nextStep = steps.find((step) => step < current)
       return nextStep ? Math.max(nextStep, minZoom) : current
     })
-  }, [minZoom])
+    anchorToSelection()
+  }, [minZoom, anchorToSelection])
 
   const zoomToSelection = useCallback(() => {
     if (!Number.isFinite(duration) || duration <= 0) return

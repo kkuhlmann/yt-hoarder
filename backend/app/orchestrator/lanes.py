@@ -2,7 +2,7 @@
 
 - default       (orchestration work; defaults to 2)
 - subscriptions (channel/playlist enumeration; defaults to 1)
-- downloads     (downloads; defaults to 1)
+- downloads     (downloads, clips fetched from YouTube; defaults to 1)
 - ml            (transcription/clips/sprites; defaults to 1)
 
 Widths come from the app_settings row and are editable live in the Settings UI

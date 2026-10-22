@@ -38,11 +38,11 @@ accounts and no cloud dependency.
 | **Transcript search** | Items are transcribed from their YouTube captions, or locally with faster-whisper, embedded with onnxruntime, and stored in pgvector. Searches return the exact spoken passages and link to their timestamps, narrowed to whatever the library is currently filtered to — the search box, the open group folder, tag chips and minimum rating. While watching, the transcript can sit beside the player, following along and searchable on its own; scroll away to read, and **Follow** returns to the passage playing. |
 | **Transcript-only indexing** | Download or subscribe to a video, playlist or channel as **Transcript Only**: only its transcript is kept, so it is searchable (in the app and over MCP) without taking up the library. See [Transcripts](#transcripts). |
 | **Mobile-optimized interface** | The web UI is built for phones and tablets as well as desktop: card layouts in place of tables, touch drag-and-drop, mobile chart forms, and native video fullscreen and picture-in-picture on iOS. |
-| **Waveform clipping** | Scrub an interactive waveform, drag region handles to frame-accurate start and end points, zoom for precision, and export a clip. |
+| **Waveform clipping** | Scrub an interactive waveform, drag region handles to frame-accurate start and end points, zoom for precision, and export a clip. Transcript-only items are clipped straight from YouTube, as audio or video. |
 | **Real-time progress** | Downloads and transcriptions stream progress over Server-Sent Events, reporting phase (video vs. audio), and percent complete.
 | **Library organization** | Switch between table and grid views, group media into folders by channel, tag, or date, and rate and tag items. Hovering the progress bar shows sprite-based thumbnail previews. |
 | **Playlists** | Build custom playlists with drag-and-drop ordering and play through them with next-up, shuffle, and autoplay controls. |
-| **Statistics** | Storage breakdown, download trends over time, transcription coverage, and filterable engagement metrics. |
+| **Statistics** | Storage breakdown, download trends over time, transcription coverage, the database space transcripts take broken down by channel, and filterable engagement metrics. |
 | **Multi-user and sharing** | Accounts with admin approval, per-user storage limits, and sharing of media, subscriptions, playlists, and clips. Media already downloaded by one user is granted to the next rather than downloaded twice. |
 | **AI research (MCP)** | Optional MCP endpoint that lets an AI agent you run yourself — Claude Code, LM Studio, Cursor or any other MCP client — search your transcripts and answer with citations, upload dates and links to the exact moment, both on YouTube and in the app's own player. Each user connects with a personal access token that sees only their library. Off by default; see [Configuration](#configuration). |
 | **Boolean search** | The Downloads search box matches channel and title and supports `&&` (AND) and `\|\|` (OR); `&&` binds tighter. Single `&` and `\|` are matched literally. The operators narrow transcript search results too. |
@@ -199,10 +199,10 @@ To configure the Compose files by hand instead of running `setup.sh`, see
 |-----|---------|
 | **Downloads** | Browse the library, play media, search transcripts, create clips, rate and tag; switch to grid view and group into folders by channel, tag, or date. The **Transcripts** view lists everything with a transcript, including transcript-only items |
 | **Subscriptions** | Add and edit channel and playlist subscriptions and their filters |
-| **Clips** | Manage clips created from your media |
+| **Clips** | Manage clips created from your media, including those cut straight from YouTube for transcript-only items |
 | **Playlists** | Create and order playlists, play them through, and create clips from any track |
 | **Tasks** | Monitor active downloads and transcription jobs. A submitted URL appears as **Resolving**, then **Queued** with the real title. Unreleased videos (live streams, upcoming premieres, post-live processing) appear as **Not Released**; subscriptions retry them automatically, one-off downloads must be re-added once the video airs. A task awaiting an automatic retry shows what failed and when it will retry (`HTTP 403 (3/20): Retries in 4m`) |
-| **Stats** | Storage, download trends, and engagement metrics |
+| **Stats** | Storage on disk and transcripts' space in the database (text vs embeddings, by channel), download trends, transcription coverage, and engagement metrics |
 | **Settings** | Runtime configuration (admin only) |
 
 ### Download options
@@ -271,6 +271,12 @@ Items with no file to play — transcript-only, or deleted with the transcript k
 YouTube's privacy-enhanced (`youtube-nocookie.com`) embed, which sets no cookies until you press play
 and keeps these views out of your YouTube recommendations. Your position is still saved, so they
 resume like everything else.
+
+**Clipping without a file.** A YouTube item played through the embed can still be clipped: press
+**Create Clip** under the player, set the start and end with the trim bar (zoom in for finer
+control) or from the current position, and choose **Video (MP4)** or **Audio (MP3)** when saving. The server fetches just that section from YouTube, on the same queue as
+downloads, and the clip lands in the Clips tab like any other. **Jump to source** on such a clip opens
+YouTube at the clip's start.
 
 A few rules follow from all this:
 
