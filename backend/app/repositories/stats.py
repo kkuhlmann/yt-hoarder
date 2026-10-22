@@ -1,10 +1,12 @@
+import asyncio
 import contextlib
 import os
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Literal, NamedTuple, get_args
 
 from cachetools import TTLCache
-from sqlalchemy import and_, case, distinct, func, or_
+from sqlalchemy import and_, case, column, distinct, func, literal_column, or_, table
 from sqlmodel import select
 
 from database import db
@@ -192,6 +194,16 @@ def _empty_transcription_stats() -> dict:
         'with_transcripts': 0,
         'coverage_percent': 0.0,
         'total_blocks': 0,
+    }
+
+
+def _empty_transcript_storage() -> dict:
+    return {
+        'total_bytes': 0,
+        'text_bytes': 0,
+        'embedding_bytes': 0,
+        'database_bytes': None,
+        'by_channel': [],
     }
 
 
@@ -822,6 +834,229 @@ async def get_transcription_stats(
         'coverage_percent': round(coverage_pct, 1),
         'total_blocks': total_blocks,
     }
+    _set_cached(cache_key, result)
+    return result
+
+
+# transcript_embeddings exists only in baseline_schema.py's raw SQL; a bare table clause
+# lets Core queries name it without adding it to SQLModel.metadata.
+_transcript_embeddings = table('transcript_embeddings', column('transcript_block_id'))
+
+
+@dataclass(frozen=True)
+class TranscriptStorageSnapshot:
+    """Instance-wide transcript storage, which every scoped view is apportioned from.
+
+    blocks_bytes / embeddings_bytes are each table's total size: heap, TOAST and every
+    index. per_media maps a media id to (block_count, weight, embedding_count), weight
+    being the summed stored size of its transcript_blocks rows.
+    """
+
+    blocks_bytes: int
+    embeddings_bytes: int
+    database_bytes: int
+    per_media: dict[int, tuple[int, int, int]]
+
+    @property
+    def blocks_weight(self) -> int:
+        return sum(weight for _, weight, _ in self.per_media.values())
+
+    @property
+    def embeddings_count(self) -> int:
+        return sum(count for _, _, count in self.per_media.values())
+
+
+# The snapshot is the one expensive transcript-storage query — it reads every transcript
+# row — so it is shared by every user and filter, and outlives the per-view results
+# apportioned from it. The lock keeps concurrent cold requests from each starting the scan.
+TRANSCRIPT_STORAGE_TTL_SECONDS = 900  # 15 minutes
+_transcript_storage_cache: TTLCache[str, TranscriptStorageSnapshot] = TTLCache(
+    maxsize=1, ttl=TRANSCRIPT_STORAGE_TTL_SECONDS
+)
+_transcript_storage_lock = asyncio.Lock()
+
+
+def _block_weight():
+    """Stored size of a whole transcript_blocks row: header, text, tsvector and the rest."""
+    return func.pg_column_size(TranscriptBlock.__table__.table_valued())
+
+
+async def _load_transcript_storage_snapshot(session) -> TranscriptStorageSnapshot:
+    sizes_stmt = select(
+        func.pg_total_relation_size(literal_column("'transcript_blocks'::regclass")),
+        func.pg_total_relation_size(literal_column("'transcript_embeddings'::regclass")),
+        func.pg_database_size(func.current_database()),
+    )
+    blocks_bytes, embeddings_bytes, database_bytes = (await session.execute(sizes_stmt)).one()
+
+    # Aggregated per media before any join: a join above the scan would carry each
+    # block's whole-row value (~800 B) through its hash and sort.
+    blocks = (
+        select(
+            TranscriptBlock.media_details_id,
+            func.count().label('block_count'),
+            func.sum(_block_weight()).label('weight'),
+        )
+        .group_by(TranscriptBlock.media_details_id)
+        .subquery()
+    )
+    embeddings = (
+        select(TranscriptBlock.media_details_id, func.count().label('embedding_count'))
+        .select_from(_transcript_embeddings)
+        .join(TranscriptBlock, TranscriptBlock.id == _transcript_embeddings.c.transcript_block_id)
+        .group_by(TranscriptBlock.media_details_id)
+        .subquery()
+    )
+    per_media_stmt = select(
+        blocks.c.media_details_id,
+        blocks.c.block_count,
+        blocks.c.weight,
+        func.coalesce(embeddings.c.embedding_count, 0),
+    ).outerjoin(embeddings, embeddings.c.media_details_id == blocks.c.media_details_id)
+    rows = (await session.execute(per_media_stmt)).all()
+
+    # Sums come back as numeric, i.e. Decimal through asyncpg.
+    return TranscriptStorageSnapshot(
+        blocks_bytes=int(blocks_bytes),
+        embeddings_bytes=int(embeddings_bytes),
+        database_bytes=int(database_bytes),
+        per_media={
+            int(media_id): (int(block_count), int(weight), int(embedding_count))
+            for media_id, block_count, weight, embedding_count in rows
+        },
+    )
+
+
+async def _get_transcript_storage_snapshot() -> TranscriptStorageSnapshot:
+    """The cached snapshot, loaded by at most one request at a time.
+
+    Shared by every user and filter for TRANSCRIPT_STORAGE_TTL_SECONDS, so the full scan
+    behind it runs once per TTL however many views are opened. A request arriving while
+    another is loading waits for that load instead of starting its own.
+    """
+    snapshot = _transcript_storage_cache.get('snapshot')
+    if snapshot is not None:
+        return snapshot
+    async with _transcript_storage_lock:
+        snapshot = _transcript_storage_cache.get('snapshot')
+        if snapshot is None:
+            async with db.get_async_session() as session:
+                snapshot = await _load_transcript_storage_snapshot(session)
+            _transcript_storage_cache['snapshot'] = snapshot
+    return snapshot
+
+
+def _transcript_storage_scope_conditions(f: ResolvedFilters) -> list:
+    """The media a view's transcript storage counts.
+
+    No status or supersede condition: a deleted item's kept transcript and a superseded
+    transcript-only row both still occupy space. A soft delete drops every MediaAccess
+    row, the owner's included, so a user's own items are matched by owner_id as well.
+    """
+    conditions = []
+    if f.channel:
+        conditions.append(MediaDetails.channel == f.channel)
+    if f.playlist_media_ids is not None:
+        conditions.append(MediaDetails.id.in_(f.playlist_media_ids))
+    if f.user_id is not None:
+        conditions.append(
+            or_(MediaDetails.id.in_(f.accessible_ids), _owned_media_condition(f.user_id))
+        )
+    return conditions
+
+
+def _apportion_transcript_storage(
+    scoped_rows, snapshot: TranscriptStorageSnapshot, *, include_database: bool
+) -> dict:
+    """Split the snapshot's real table sizes across the channels of the in-scope media.
+
+    scoped_rows are (media_id, channel) pairs; media without a transcript are skipped.
+    A channel's text bytes are its share of every block's stored size, applied to
+    transcript_blocks' total; its embedding bytes are its share of every embedding,
+    applied to transcript_embeddings' total (all vectors are the same size, so a count
+    is an exact share). Shares are of the whole instance even when the view is scoped,
+    or a one-channel filter would claim both tables outright. Totals are sums of the
+    channel figures, so the parts always add up; space no row accounts for, such as the
+    empty index pages when nothing is embedded, is left unattributed.
+    """
+    blocks_weight = snapshot.blocks_weight
+    embeddings_count = snapshot.embeddings_count
+
+    sums: dict[str, list[int]] = {}
+    for media_id, channel in scoped_rows:
+        entry = snapshot.per_media.get(media_id)
+        if entry is None:
+            continue
+        block_count, weight, embedding_count = entry
+        acc = sums.setdefault(channel, [0, 0, 0, 0])
+        acc[0] += 1
+        acc[1] += block_count
+        acc[2] += weight
+        acc[3] += embedding_count
+
+    by_channel = []
+    for channel, (transcripts, blocks, weight, embeddings) in sums.items():
+        text_bytes = snapshot.blocks_bytes * weight // blocks_weight if blocks_weight else 0
+        embedding_bytes = (
+            snapshot.embeddings_bytes * embeddings // embeddings_count if embeddings_count else 0
+        )
+        by_channel.append(
+            {
+                'channel': channel,
+                'total_bytes': text_bytes + embedding_bytes,
+                'text_bytes': text_bytes,
+                'embedding_bytes': embedding_bytes,
+                'transcript_count': transcripts,
+                'block_count': blocks,
+            }
+        )
+    by_channel.sort(key=lambda c: (-c['total_bytes'], c['channel']))
+
+    text_total = sum(c['text_bytes'] for c in by_channel)
+    embedding_total = sum(c['embedding_bytes'] for c in by_channel)
+    return {
+        'total_bytes': text_total + embedding_total,
+        'text_bytes': text_total,
+        'embedding_bytes': embedding_total,
+        'database_bytes': snapshot.database_bytes if include_database else None,
+        'by_channel': by_channel,
+    }
+
+
+async def get_transcript_storage_stats(
+    channel: str | None = None,
+    playlist_id: int | None = None,
+    user_id: int | None = None,
+) -> dict:
+    """Database space taken by transcripts, split into text and embeddings, by channel.
+
+    database_bytes (the whole database's size) is reported only to the admin all-users
+    view, user_id None: it describes the instance, not the caller's media.
+    """
+    cache_key = _make_cache_key('transcript_storage', channel, playlist_id, user_id)
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    async with db.get_async_session() as session:
+        f = await _resolve_filters(
+            session, channel=channel, playlist_id=playlist_id, user_id=user_id
+        )
+        if f is None:
+            result = _empty_transcript_storage()
+            _set_cached(cache_key, result)
+            return result
+
+        stmt = select(MediaDetails.id, func.coalesce(MediaDetails.channel, 'Unknown'))
+        conditions = _transcript_storage_scope_conditions(f)
+        if conditions:
+            stmt = stmt.where(and_(*conditions))
+        scoped_rows = (await session.execute(stmt)).all()
+
+    snapshot = await _get_transcript_storage_snapshot()
+    result = _apportion_transcript_storage(
+        scoped_rows, snapshot, include_database=f.user_id is None
+    )
     _set_cached(cache_key, result)
     return result
 

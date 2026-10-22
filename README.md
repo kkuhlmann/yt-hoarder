@@ -42,7 +42,7 @@ accounts and no cloud dependency.
 | **Real-time progress** | Downloads and transcriptions stream progress over Server-Sent Events, reporting phase (video vs. audio), and percent complete.
 | **Library organization** | Switch between table and grid views, group media into folders by channel, tag, or date, and rate and tag items. Hovering the progress bar shows sprite-based thumbnail previews. |
 | **Playlists** | Build custom playlists with drag-and-drop ordering and play through them with next-up, shuffle, and autoplay controls. |
-| **Statistics** | Storage breakdown, download trends over time, transcription coverage, and filterable engagement metrics. |
+| **Statistics** | Storage breakdown, download trends over time, transcription coverage, the database space transcripts take broken down by channel, and filterable engagement metrics. |
 | **Multi-user and sharing** | Accounts with admin approval, per-user storage limits, and sharing of media, subscriptions, playlists, and clips. Media already downloaded by one user is granted to the next rather than downloaded twice. |
 | **AI research (MCP)** | Optional MCP endpoint that lets an AI agent you run yourself — Claude Code, LM Studio, Cursor or any other MCP client — search your transcripts and answer with citations, upload dates and links to the exact moment, both on YouTube and in the app's own player. Each user connects with a personal access token that sees only their library. Off by default; see [Configuration](#configuration). |
 | **Boolean search** | The Downloads search box matches channel and title and supports `&&` (AND) and `\|\|` (OR); `&&` binds tighter. Single `&` and `\|` are matched literally. The operators narrow transcript search results too. |
@@ -202,7 +202,7 @@ To configure the Compose files by hand instead of running `setup.sh`, see
 | **Clips** | Manage clips created from your media |
 | **Playlists** | Create and order playlists, play them through, and create clips from any track |
 | **Tasks** | Monitor active downloads and transcription jobs. A submitted URL appears as **Resolving**, then **Queued** with the real title. Unreleased videos (live streams, upcoming premieres, post-live processing) appear as **Not Released**; subscriptions retry them automatically, one-off downloads must be re-added once the video airs. A task awaiting an automatic retry shows what failed and when it will retry (`HTTP 403 (3/20): Retries in 4m`) |
-| **Stats** | Storage, download trends, and engagement metrics |
+| **Stats** | Storage on disk and transcripts' space in the database (text vs embeddings, by channel), download trends, transcription coverage, and engagement metrics |
 | **Settings** | Runtime configuration (admin only) |
 
 ### Download options

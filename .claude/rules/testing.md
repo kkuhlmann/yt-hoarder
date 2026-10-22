@@ -41,9 +41,10 @@ The fixture chain in `tests/conftest.py` is built for speed, and each piece of i
 - **Keep the `_reset_rate_limiters` autouse fixture.** The limiters are module-level singletons and
   `authenticated_client` registers via a real `POST`, so without it the budget is consumed across
   unrelated tests.
-- **Transcript-search tests must request `pgvector_schema`.** `transcript_embeddings` and
+- **Any test that reaches `transcript_embeddings` must request `pgvector_schema`**: transcript
+  search, and `/stats/transcript-storage` too. `transcript_embeddings` and
   `transcript_blocks.text_search` live only in `baseline_schema.py`'s hand-written block, so
-  `SQLModel.metadata.create_all` never creates them and no search query can run without it. It is
+  `SQLModel.metadata.create_all` never creates them and those queries can't run without it. It is
   opt-in rather than autouse because most tests don't need it, and it needs no teardown —
   `transcript_embeddings` cascades off `transcript_blocks`, which `_reset_sql` already empties.
 - **No private per-file engine fixtures — use `clean_database`.** A file that builds its own

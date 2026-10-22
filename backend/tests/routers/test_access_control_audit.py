@@ -193,6 +193,7 @@ def test_stats_playlist_filter_requires_access(authenticated_client):
         '/stats/storage',
         '/stats/downloads-over-time',
         '/stats/transcription',
+        '/stats/transcript-storage',
         '/stats/engagement',
         '/stats/clips',
         '/stats/download-success-rate',

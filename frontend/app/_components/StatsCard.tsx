@@ -35,6 +35,9 @@ export function StatsCard() {
     clips,
     successRate,
     heatmap,
+    transcriptStorage,
+    transcriptStorageLoading,
+    transcriptStorageFailed,
     loading,
     error,
     granularity,
@@ -91,7 +94,13 @@ export function StatsCard() {
           isMobile={isMobile}
         />
         <ActivityHeatmapSection heatmap={heatmap} isMobile={isMobile} />
-        <TranscriptionSection transcription={transcription} />
+        <TranscriptionSection
+          transcription={transcription}
+          storage={transcriptStorage}
+          storageLoading={transcriptStorageLoading}
+          storageFailed={transcriptStorageFailed}
+          colors={colors}
+        />
         <ClipsSection clips={clips} granularity={granularity} colors={colors} tooltipStyle={tooltipStyle} isMobile={isMobile} />
         <EngagementSection engagement={engagement} colors={colors} />
       </CardContent>

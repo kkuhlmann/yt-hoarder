@@ -88,6 +88,25 @@ the queries carry it:
   `repositories/stats.py`). The transcription-coverage figures keep every `COMPLETE` row, because
   transcript-only items are in their numerator, and dropping them from the denominator alone could
   push coverage past 100%.
+- **Transcript storage stats (`/stats/transcript-storage`) measure physical space**, so their scope
+  differs from every other stats figure:
+  - **The bytes are real table sizes, apportioned.** `pg_total_relation_size` of `transcript_blocks`
+    and of `transcript_embeddings` (heap, TOAST and every index, FTS GIN and HNSW included) is split
+    across channels by each one's share of block row bytes (`pg_column_size` of the whole row) and
+    of embedding count. **The shares are of the whole instance even in a scoped view**; otherwise a
+    one-channel filter would claim both tables outright.
+  - **No status and no supersede condition.** A deleted item's kept transcript and a superseded
+    transcript-only row both still occupy space. A user's view is "shared with me OR mine" for the
+    same soft-delete reason as `include_owned`. `database_bytes` goes only to the admin all-users
+    view, since it describes the instance.
+  - **One instance-wide snapshot does the expensive part.** It holds the per-media aggregates over
+    every transcript row, is cached for 15 minutes, and is loaded single-flight under an
+    `asyncio.Lock`. Each view only selects its in-scope media ids and sums snapshot entries in
+    Python. **Keep the scope out of the snapshot query**, or every user and filter pays the full
+    scan again. The snapshot aggregates per media *before* any join: a join above the scan would
+    carry each block's whole-row value through its hash and sort.
+  - **Its own endpoint, fetched outside `useStats`'s `Promise.all`**, so a cold snapshot never holds
+    up the rest of the Stats page.
 
 ## Embeddings (`services/embeddings.py`)
 

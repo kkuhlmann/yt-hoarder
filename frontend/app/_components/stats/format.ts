@@ -7,6 +7,14 @@ export function formatCount(count: number): string {
   return `${formatted}k`
 }
 
+export function formatShare(part: number, whole: number): string {
+  if (whole <= 0) return ""
+  const percent = (part / whole) * 100
+  if (percent === 0) return "0%"
+  if (percent < 0.1) return "<0.1%"
+  return `${percent < 10 ? percent.toFixed(1) : percent.toFixed(0)}%`
+}
+
 export function formatDurationLong(seconds: number): string {
   if (!seconds || seconds <= 0) return "0 hours"
   const hours = seconds / 3600
