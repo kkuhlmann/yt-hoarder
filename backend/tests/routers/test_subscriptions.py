@@ -1,3 +1,5 @@
+import pytest
+
 from database import db
 from models import JobType, MediaType, Subscription
 
@@ -179,3 +181,99 @@ def test_unauthenticated_rejected(test_database):
     client = TestClient(app)
     response = client.get('/subscriptions')
     assert response.status_code == 401
+
+
+@pytest.fixture
+def check_specs(monkeypatch):
+    """Every JobSpec POST /subscriptions/{id}/check hands the orchestrator."""
+    specs = []
+
+    async def record(spec):
+        specs.append(spec)
+        return spec.task_id
+
+    monkeypatch.setattr('routers.subscriptions.orch.submit', record)
+    return specs
+
+
+def _second_user_client(admin_client, username='user2'):
+    from fastapi.testclient import TestClient
+
+    from main import app
+
+    user_id = admin_client.post(
+        '/auth/register', json={'username': username, 'password': 'pass123'}
+    ).json()['id']
+    admin_client.post(f'/auth/users/{user_id}/approve')
+    client = TestClient(app)
+    client.post('/auth/login', json={'username': username, 'password': 'pass123'})
+    return user_id, client
+
+
+def test_check_subscription_submits_a_deduped_priority_zero_check(
+    authenticated_client, check_specs
+):
+    from orchestrator import SUBSCRIPTION_CHECK_JOB
+
+    response = authenticated_client.post('/subscriptions/1/check')
+
+    assert response.status_code == 202
+    assert response.json() == {'task': 'subscription-check-1'}
+    (spec,) = check_specs
+    assert spec.job_name == SUBSCRIPTION_CHECK_JOB
+    assert spec.args == (1,)
+    assert spec.task_id == 'subscription-check-1'
+    assert spec.priority == 0
+    assert spec.tracked is False
+    assert spec.user_id == _get_admin_id(authenticated_client)
+
+
+def test_check_subscription_runs_on_a_disabled_subscription(authenticated_client, check_specs):
+    authenticated_client.put('/subscriptions/1', json={'enabled': False})
+
+    response = authenticated_client.post('/subscriptions/1/check')
+
+    assert response.status_code == 202
+    assert len(check_specs) == 1
+
+
+def test_check_subscription_is_attributed_to_the_owner_not_the_caller(
+    authenticated_client, check_specs
+):
+    """An admin's check must stay pollable by the owner, who shares its task_id."""
+    user2_id, _ = _second_user_client(authenticated_client)
+    sub_id = _insert_subscription(user2_id)
+
+    response = authenticated_client.post(f'/subscriptions/{sub_id}/check')
+
+    assert response.status_code == 202
+    assert check_specs[0].user_id == user2_id
+
+
+def test_check_subscription_refuses_a_shared_user(authenticated_client, check_specs):
+    user2_id, client2 = _second_user_client(authenticated_client)
+    authenticated_client.post('/subscriptions/1/share', json={'user_id': user2_id})
+    assert client2.get('/subscriptions/1').status_code == 200
+
+    response = client2.post('/subscriptions/1/check')
+
+    assert response.status_code == 404
+    assert check_specs == []
+
+
+def test_check_subscription_not_exist(authenticated_client, check_specs):
+    response = authenticated_client.post('/subscriptions/999/check')
+
+    assert response.status_code == 404
+    assert check_specs == []
+
+
+def test_check_subscription_unauthenticated(test_database, check_specs):
+    from fastapi.testclient import TestClient
+
+    from main import app
+
+    response = TestClient(app).post('/subscriptions/1/check')
+
+    assert response.status_code == 401
+    assert check_specs == []

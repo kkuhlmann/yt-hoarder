@@ -232,11 +232,16 @@ second subscription.
 | **Date filter** | Ignores anything released on or before this date, so a new subscription doesn't pull in a channel's entire back catalogue. |
 | **Title filter** | Only downloads videos whose title contains this as a whole word, case-insensitive — `mix` matches "Mix" but not "remix". |
 | **Min / Max duration** | Skips videos shorter or longer than the given number of **minutes**. Useful for excluding Shorts, or multi-hour streams. |
-| **Enabled** | The switch on each row in the Subscriptions table. Pauses checking without deleting the subscription or anything it downloaded. |
+| **Enabled** | The switch on each row in the Subscriptions table. Pauses scheduled checking without deleting the subscription or anything it downloaded. |
 
 Filtered-out videos are recorded as skipped rather than re-examined every cycle. Loosening a filter
 later re-evaluates them, so widening a duration range or clearing a title filter picks up the videos
 it previously passed over. How often subscriptions are checked is set in **Settings**, not here.
+
+To check one subscription right away instead of waiting for the schedule, press the bolt icon on its
+row (**Check for new videos now**). It works on a subscription that is switched off too, so a disabled
+subscription can serve as a manual-only one, and the videos it finds are queued ahead of scheduled
+subscription downloads. Only the subscription's owner, or an admin, sees the button.
 
 ### Transcripts
 

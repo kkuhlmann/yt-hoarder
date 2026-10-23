@@ -2,7 +2,7 @@ from logger import logger
 from models import JobType, Subscription
 from orchestrator import JobContext
 from repositories import subscriptions as sub_repo
-from repositories.task_records import SUBSCRIPTION_DOWNLOAD_PRIORITY
+from repositories.task_records import DIRECT_DOWNLOAD_PRIORITY, SUBSCRIPTION_DOWNLOAD_PRIORITY
 from schemas import SubscriptionDTO
 from serializers import (
     deserialize_subscription,
@@ -48,19 +48,35 @@ def _wait_for_fanout_capacity(ctx: JobContext, waited: float) -> float | None:
 
 
 def run_subscription_pipeline(ctx: JobContext, job_type: str) -> dict:
-    """Orchestrator body: the whole subscription cycle as plain control flow.
+    """Orchestrator body for the scheduled check of every enabled subscription of a type."""
+    return _check_subscriptions(
+        ctx, get_all_subscriptions_impl(job_type), SUBSCRIPTION_DOWNLOAD_PRIORITY
+    )
 
-    get_all_subscriptions → create_download_jobs → filter_completed → fan out
-    one populate job per download; each early return aborts the pipeline.
+
+def run_subscription_check(ctx: JobContext, subscription_id: int) -> dict:
+    """Orchestrator body for an on-demand check of one subscription, enabled or not.
+
+    What it finds queues at the manual-download priority: someone asked for it.
+    """
+    return _check_subscriptions(
+        ctx, get_subscription_impl(subscription_id), DIRECT_DOWNLOAD_PRIORITY
+    )
+
+
+def _check_subscriptions(ctx: JobContext, subs: list[dict], priority: int) -> dict:
+    """The subscription cycle as plain control flow.
+
+    create_download_jobs → filter_completed → fan out one populate job per
+    download at `priority`; each early return aborts the pipeline.
     """
     from orchestrator import POPULATE_JOB, JobSpec, orch
     from tasks.media import filter_completed_downloads_impl
 
-    subs = get_all_subscriptions_impl(job_type)
     if not subs:
         return {'jobs_started': 0}
 
-    jobs = create_download_jobs_from_subs_impl(subs)
+    jobs = create_download_jobs_from_subs_impl(subs, priority)
     if not jobs:
         return {'jobs_started': 0}
 
@@ -80,7 +96,7 @@ def run_subscription_pipeline(ctx: JobContext, job_type: str) -> dict:
                 job_name=POPULATE_JOB,
                 args=(job,),
                 tracked=False,
-                priority=SUBSCRIPTION_DOWNLOAD_PRIORITY,
+                priority=priority,
                 user_id=job.get('user_id'),
             )
         )
@@ -160,13 +176,23 @@ def get_all_subscriptions_impl(job_type: str) -> list[dict]:
     return [serialize_subscription(subscription_to_dto(s)) for s in subs]
 
 
-def create_download_jobs_from_subs_impl(subs: list[dict]) -> list[dict]:
+def get_subscription_impl(subscription_id: int) -> list[dict]:
+    """The subscription as a one-element list, or [] if it was deleted since the click."""
+    sub = sub_repo.sync_get_subscription_by_id(subscription_id)
+    return [serialize_subscription(subscription_to_dto(sub))] if sub else []
+
+
+def create_download_jobs_from_subs_impl(
+    subs: list[dict], priority: int = SUBSCRIPTION_DOWNLOAD_PRIORITY
+) -> list[dict]:
     """Build one download job per video across all subscriptions, round-robin.
 
     The returned order is the order populate jobs are dequeued: the caller fans out
     in list order, and every populate JobSpec ties at the same lane sort key, so
     Lane.pop_next falls back to insertion order. Grouping by subscription would put
     the last-added one behind every other subscription's entire backlog.
+
+    `priority` is stamped on every job so the download chain it becomes queues at it too.
     """
     from itertools import zip_longest
 
@@ -235,6 +261,7 @@ def create_download_jobs_from_subs_impl(subs: list[dict]) -> list[dict]:
                 playlist_name=playlist_name,
                 source_playlist_url=source_playlist_url,
                 pending_media_details=pending_md,
+                priority=priority,
             )
             sub_jobs.append(serialize_download_job(dlj_dto))
 

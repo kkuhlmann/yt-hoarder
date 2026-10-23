@@ -3,7 +3,13 @@
 import { Dispatch, SetStateAction, useState } from "react"
 import axios from "axios"
 import toast from "react-hot-toast"
-import { ArrowPathIcon, CheckIcon, XMarkIcon, UserPlusIcon } from "@heroicons/react/20/solid"
+import {
+  ArrowPathIcon,
+  BoltIcon,
+  CheckIcon,
+  XMarkIcon,
+  UserPlusIcon,
+} from "@heroicons/react/20/solid"
 
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
@@ -18,6 +24,7 @@ import { EditSubscriptionDialog } from "@/app/_components/EditSubscriptionDialog
 import { ShareDialog } from "./ShareDialog"
 import { SubscriptionType } from "@/app/types/SubscriptionsOptions"
 import { useAuth } from "@/app/context/AuthContext"
+import { startJobPolling } from "@/app/jobStatusService"
 import { qualityLabel } from "./downloadOptions"
 
 type SubscriptionsTableProps = {
@@ -56,7 +63,7 @@ export function SubscriptionsTable({
   const [editItem, setEditItem] = useState<SubscriptionType | null>(null)
   const { user } = useAuth()
 
-  // PUT /subscriptions/{id} and the sharing endpoints are both owner-or-admin only.
+  // PUT /subscriptions/{id}, its check and the sharing endpoints are all owner-or-admin only.
   const canManage = (sub: SubscriptionType) =>
     sub.user_id === user?.id || !!user?.is_admin
 
@@ -75,6 +82,32 @@ export function SubscriptionsTable({
     }
   }
 
+  // No in-flight state of its own: a repeat press gets the same task id back, and
+  // startJobPolling ignores an id it is already polling.
+  const checkNow = async (sub: SubscriptionType) => {
+    const name = sub.channel || sub.url
+    let task: string
+    try {
+      const response = await axios.post(apiUrl(`/subscriptions/${sub.id}/check`))
+      task = response.data.task
+    } catch (error) {
+      toast.error(errorMessage(error, "Couldn't start the check"))
+      return
+    }
+
+    let loadingToast: string | undefined
+    startJobPolling(
+      "Subscription",
+      task,
+      () => toast.success(`Checked ${name}. Anything new is queued in Tasks.`),
+      () => toast.error(`Checking ${name} failed`, { id: loadingToast }),
+      (toastId) => {
+        loadingToast = toastId
+        toast.loading(`Checking ${name} for new videos…`, { id: toastId })
+      },
+    )
+  }
+
   const actions: ActionDescriptor<SubscriptionType>[] = [
     {
       key: "offlineSync",
@@ -85,6 +118,15 @@ export function SubscriptionsTable({
         isTranscriptOnly(sub) ? null : (
           <CollectionOfflineButton source={subscriptionSource(sub.id)} />
         ),
+    },
+    {
+      key: "checkNow",
+      title: "Check for new videos now",
+      icon: BoltIcon,
+      hidden: (sub) => !canManage(sub),
+      onClick: checkNow,
+      buttonClassName: "hover:bg-matrix/20",
+      iconClassName: "text-text-muted hover:text-matrix",
     },
     {
       key: "share",

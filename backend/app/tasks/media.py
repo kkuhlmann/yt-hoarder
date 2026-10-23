@@ -1493,9 +1493,12 @@ def create_download_and_transcript_chains_impl(download_job: dict) -> dict:
         return {'message': 'Active task already exists', 'skipped': True}
 
     download_task_id, transcript_task_id = result
-    priority = (
-        DIRECT_DOWNLOAD_PRIORITY if dto.subscription_id is None else SUBSCRIPTION_DOWNLOAD_PRIORITY
-    )
+    if dto.priority is not None:
+        priority = dto.priority
+    elif dto.subscription_id is None:
+        priority = DIRECT_DOWNLOAD_PRIORITY
+    else:
+        priority = SUBSCRIPTION_DOWNLOAD_PRIORITY
     tr_repo.dispatch_download_chain(
         download_data=download_job,
         download_task_id=download_task_id,

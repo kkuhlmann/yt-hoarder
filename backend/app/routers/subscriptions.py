@@ -11,7 +11,7 @@ from dependencies import (
 )
 from logger import logger
 from models import MediaType, Subscription
-from orchestrator import ADD_SUBSCRIPTION_JOB, JobSpec, orch
+from orchestrator import ADD_SUBSCRIPTION_JOB, SUBSCRIPTION_CHECK_JOB, JobSpec, orch
 from repositories import settings as settings_repo
 from repositories import sharing as sharing_repo
 from repositories import subscription_access as sa_repo
@@ -169,6 +169,45 @@ async def update_subscription(
         status_code=status.HTTP_404_NOT_FOUND,
         detail=f'Subscription with id {id} not found',
     )
+
+
+@router.post(
+    '/{id}/check',
+    status_code=status.HTTP_202_ACCEPTED,
+    response_description='Job id of the check, to poll at GET /tasks/{task}',
+    response_model=dict,
+)
+async def check_subscription_now(
+    request: Request, id: int, user_id: int = Depends(get_required_user_id)
+):
+    """Check one subscription for new videos now, instead of waiting for the schedule.
+
+    Owner or admin only. Runs whether or not the subscription is enabled, and the videos it
+    finds queue ahead of scheduled subscription downloads. Calling it again while a check of
+    the same subscription is queued or running returns that check's id rather than starting
+    another.
+    """
+    subscription = await get_entity_or_404(
+        sub_repo.get_subscription_by_id,
+        id,
+        'Subscription',
+        access_check=partial(
+            sa_repo.check_subscription_owner_or_raise, user_id, is_admin=request.state.is_admin
+        ),
+    )
+    task_id = await orch.submit(
+        JobSpec(
+            job_name=SUBSCRIPTION_CHECK_JOB,
+            args=(id,),
+            task_id=f'subscription-check-{id}',
+            tracked=False,
+            priority=0,
+            # The owner, not the caller: everyone who presses it shares this task_id, and
+            # GET /tasks/{id} lets only this user (or an admin) poll an untracked job.
+            user_id=subscription.user_id,
+        )
+    )
+    return {'task': task_id}
 
 
 # --- Sharing endpoints ---
