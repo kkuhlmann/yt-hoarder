@@ -22,10 +22,8 @@ import { useAdmin } from "@/app/context/AdminContext"
 import { ThemeSwitcher } from "@/app/_components/ThemeSwitcher"
 import { OfflineToggle } from "@/app/_components/OfflineToggle"
 import { useOffline } from "@/app/context/OfflineContext"
-import {
-  OfflineStorageButton,
-  OfflineStorageDialog,
-} from "@/app/_components/OfflineStorageDialog"
+import { OfflineStorageDialog } from "@/app/_components/OfflineStorageDialog"
+import { useOfflineSupported } from "@/app/_hooks/useOfflineSupported"
 import { MobileNavMenu } from "@/app/_components/MobileNavMenu"
 import { ThemePicker } from "@/app/_components/ThemePicker"
 import { ChangePasswordDialog } from "@/app/_components/auth/ChangePasswordDialog"
@@ -80,6 +78,7 @@ export function NavigationBar() {
   const { user, logout } = useAuth()
   const { adminMode, setAdminMode } = useAdmin()
   const { offlineMode } = useOffline()
+  const offlineSupported = useOfflineSupported()
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const [ytdlpVersion, setYtdlpVersion] = useState<string | null>(null)
   const [storageUsed, setStorageUsed] = useState<number | null>(null)
@@ -227,10 +226,6 @@ export function NavigationBar() {
               phone gets exactly one item here — the overflow menu. */}
           <div className="flex items-center gap-3 justify-end">
             <OfflineToggle className="hidden sm:flex" />
-            <OfflineStorageButton
-              onClick={() => setStorageOpen(true)}
-              className="hidden sm:flex"
-            />
             <span className="hidden sm:contents">
               <ThemeSwitcher />
               {currentTheme === "geocities" && !offlineMode && <ThemePicker />}
@@ -269,8 +264,9 @@ export function NavigationBar() {
                 )}
                 {/* Signing out offline would discard the cached identity that
                     unlocks the downloaded library, with no server to sign back
-                    in against — so the account menu waits for the connection. */}
-                {offlineMode ? (
+                    in against — so offline the account entries are dropped and
+                    only offline storage is left in the menu. */}
+                {offlineMode && !offlineSupported ? (
                   <span
                     className="hidden sm:flex items-center gap-1 px-2 py-1 text-xs font-mono text-text-muted shrink-0"
                     title={user.username}
@@ -290,17 +286,26 @@ export function NavigationBar() {
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => setChangePasswordOpen(true)}>
-                        Change Password
-                      </DropdownMenuItem>
-                      {user.mcp_enabled && (
-                        <DropdownMenuItem onClick={() => setAccessTokensOpen(true)}>
-                          MCP Access Tokens
+                      {offlineSupported && (
+                        <DropdownMenuItem onClick={() => setStorageOpen(true)}>
+                          Offline Storage
                         </DropdownMenuItem>
                       )}
-                      <DropdownMenuItem onClick={logout}>
-                        Sign out
-                      </DropdownMenuItem>
+                      {!offlineMode && (
+                        <>
+                          <DropdownMenuItem onClick={() => setChangePasswordOpen(true)}>
+                            Change Password
+                          </DropdownMenuItem>
+                          {user.mcp_enabled && (
+                            <DropdownMenuItem onClick={() => setAccessTokensOpen(true)}>
+                              MCP Access Tokens
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem onClick={logout}>
+                            Sign out
+                          </DropdownMenuItem>
+                        </>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}

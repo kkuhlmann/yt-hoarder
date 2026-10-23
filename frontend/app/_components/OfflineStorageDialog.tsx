@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useState } from "react"
-import { CircleStackIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { TrashIcon } from "@heroicons/react/24/outline"
 import toast from "react-hot-toast"
 
 import {
@@ -20,44 +20,11 @@ import { allItems, allMeta, storedBytesOf, type OfflineItem } from "@/app/lib/of
 import { BUDGET_STORAGE_KEY, readBudgetBytes } from "@/app/lib/offlineBudget"
 import { removeDownload, resumeInterrupted } from "@/app/lib/offlineDownloader"
 import { formatBytes } from "@/app/utils"
-import { cn } from "@/lib/utils"
 
 const GIB = 1024 * 1024 * 1024
 const BUDGET_CHOICES_GIB = [1, 2, 4, 8, 16, 32]
 
 type Row = { item: OfflineItem; title: string }
-
-/**
- * The desktop affordance that opens the dialog.
- *
- * Separate from the dialog because the mobile entry point is a dropdown menu item,
- * and a DialogTrigger cannot live inside one: selecting the item closes the menu,
- * which unmounts the trigger before the dialog can open.
- */
-export function OfflineStorageButton({
-  onClick,
-  className,
-}: {
-  onClick: () => void
-  className?: string
-}) {
-  const supported = useOfflineSupported()
-  if (!supported) return null
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title="Offline storage"
-      className={cn(
-        "items-center gap-1 px-2 py-1 text-xs font-mono rounded shrink-0 text-text-muted hover:text-matrix hover:bg-matrix/10 transition-colors",
-        className
-      )}
-    >
-      <CircleStackIcon className="h-4 w-4" />
-    </button>
-  )
-}
 
 /**
  * Storage management for the offline library: what is stored, and the cap on it.
