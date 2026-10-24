@@ -25,6 +25,7 @@ from orchestrator import (
     POPULATE_JOB,
     SPRITES_JOB,
     SUBPROCESS_RUNNER,
+    SUBSCRIPTION_CHECK_JOB,
     SUBSCRIPTION_PIPELINE_JOB,
     SUBSCRIPTIONS_LANE,
     TRANSCRIPT_JOB,
@@ -45,7 +46,11 @@ def register_all_jobs() -> None:
     from tasks.media import guard_resolving_placeholders, run_populate_media_details
     from tasks.scheduling import run_cleanup_job, run_direct_download_pipeline
     from tasks.sprites import run_sprites_job
-    from tasks.subscriptions import run_add_subscription, run_subscription_pipeline
+    from tasks.subscriptions import (
+        run_add_subscription,
+        run_subscription_check,
+        run_subscription_pipeline,
+    )
 
     register_job(
         JobDefinition(
@@ -110,11 +115,20 @@ def register_all_jobs() -> None:
     # Own serial lane: one pipeline job holds its slot for a whole channel
     # enumeration plus a per-video DB check, and a running job cannot be
     # preempted by priority. On the default lane the two cron job types could
-    # occupy both slots and stall manual downloads.
+    # occupy both slots and stall manual downloads. The on-demand check shares the
+    # lane for a further reason: its fan-out waits for the default lane's queue to
+    # drain, so running there it would hold one of the slots that drain it.
     register_job(
         JobDefinition(
             name=SUBSCRIPTION_PIPELINE_JOB,
             fn=retry_transient_db(run_subscription_pipeline),
+            lane=SUBSCRIPTIONS_LANE,
+        )
+    )
+    register_job(
+        JobDefinition(
+            name=SUBSCRIPTION_CHECK_JOB,
+            fn=retry_transient_db(run_subscription_check),
             lane=SUBSCRIPTIONS_LANE,
         )
     )

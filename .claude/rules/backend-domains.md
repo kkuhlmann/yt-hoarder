@@ -44,15 +44,45 @@ are searched. `transcript_embeddings` has no ORM model, so the bridge is
   makes the planner choose the index path, so `test_scoped_vector_cte_is_materialized` pins the
   keyword rather than the behaviour.
 
-Two more rules came with the MCP tools, which call `get_hybrid_search_results` with filters the UI
-never sends (`channels`, `released_from`/`released_to`, `title_contains`, a separate `fts_text`):
+More rules came with the MCP tools, which call `get_hybrid_search_results` with filters the UI
+never sends (`channels`, `released_from`/`released_to`, `title_contains`, `media_ids`, a separate
+`fts_text`):
 - **New filters belong in `_build_media_conditions`, i.e. in the scope, never in an outer `WHERE`**
   on the search query. Only the scope reaches the `MATERIALIZED` exact path; an outer filter is
   exactly the post-filter that silently returns too few rows. `channels=[]` deliberately matches
   nothing, so a caller whose names all failed to resolve can't get the whole library back.
 - **`semantic_cache`'s key is a hand-written tuple: every parameter that changes the result must be
   in it**, or a call differing only in that parameter is served another call's hits. The cache also
-  returns its own list object, so callers must copy, never annotate hits in place.
+  returns its own list object, so callers must copy, never annotate hits in place. Its size is
+  counted in hits, not entries: one MCP search caches hundreds.
+- **`media_ids` lives in the scope** like every other filter. An empty list matches nothing.
+
+The index path has its own rules:
+- **It returns at most `hnsw.ef_search` rows (40 by default), counted before the scope filters
+  them**, so a deep or scoped search silently comes back short. `_use_iterative_index_scan` fixes
+  this per query:
+  - it sets `hnsw.iterative_scan=strict_order` and raises `ef_search` to the requested depth;
+  - it uses `set_config(..., true)`, so the settings last only for the transaction and must be
+    applied in the same session as the query;
+  - only the index path calls it; the exact path needs none of it;
+  - `test_transcript_index_path.py` forces the index (exact limit 0, seqscan and sort off), keeps
+    a control case proving the cap is real, and rebuilds the index from its own rows first,
+    since the session-wide graph left by earlier tests can't reach every live row.
+- **No tiebreaker on the index path's `ORDER BY embedding <=> …`.** HNSW order is approximate, and a
+  second key only adds a sort node. The exact, keyword and RRF orderings all break ties by block id,
+  which is what keeps MCP's search pages stable.
+
+## Transcript block times
+
+**Blocks the aggregator writes now partition the timeline** (`start < end <= next.start`).
+`_aggregate_segments_into_blocks` cuts each block off where the next one starts, because caption
+cues (YouTube's roll-up auto-captions especially) and Whisper segments overlap their successors.
+
+**Stored rows may still overlap, by a cue or more:** the old aggregator ended each block at the end
+of the next block's first cue, and nothing rewrites existing rows. Consequences:
+- **Readers place windows by `start_time`.** Overlapping `end_time`s make an end-time overlap test
+  return the previous block too; see `get_blocks_in_window`.
+- **An end time on an old row is an overestimate**, by about one cue.
 
 ## Transcript-only media in queries
 

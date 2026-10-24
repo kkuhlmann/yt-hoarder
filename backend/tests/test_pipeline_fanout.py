@@ -5,18 +5,22 @@ Pure unit tests — yt-dlp is patched out, no database, no network.
 
 from unittest.mock import patch
 
+import pytest
+
 from models import JobType, MediaType
 from orchestrator import POPULATE_JOB, JobContext, orch
 from repositories.task_records import DIRECT_DOWNLOAD_PRIORITY, SUBSCRIPTION_DOWNLOAD_PRIORITY
 from routers.ytdl_router import _canonical_job_url
 from schemas import DownloadJobDTO, SubscriptionDTO
 from serializers import serialize_download_job, serialize_subscription
+from tasks.media import create_download_and_transcript_chains_impl
 from tasks.scheduling import expand_playlists_impl, run_direct_download_pipeline
 from tasks.subscriptions import (
     FANOUT_MAX_WAIT_SECONDS,
     FANOUT_POLL_SECONDS,
     FANOUT_QUEUE_TARGET,
     create_download_jobs_from_subs_impl,
+    run_subscription_check,
     run_subscription_pipeline,
 )
 
@@ -212,6 +216,64 @@ class TestFanOutPriorities:
         assert specs, 'pipeline must fan out at least one populate job'
         assert all(s.job_name == POPULATE_JOB for s in specs)
         assert all(s.priority == SUBSCRIPTION_DOWNLOAD_PRIORITY for s in specs)
+
+    def test_on_demand_check_fans_out_at_direct_priority(self):
+        """Someone pressed Check now, so what it finds must not wait behind the cron backlog."""
+        with (
+            patch('tasks.subscriptions.get_subscription_impl', return_value=[_sub(7, 'Alpha')]),
+            patch('tasks.subscriptions.get_url_info', return_value=_flat_info('Alpha', 2)),
+            patch('tasks.media.filter_completed_downloads_impl', side_effect=lambda jobs: jobs),
+            patch.object(orch, 'queued_count', return_value=0),
+            patch.object(orch, 'submit_from_thread') as submit,
+        ):
+            result = run_subscription_check(JobContext(task_id='t'), 7)
+
+        specs = [call.args[0] for call in submit.call_args_list]
+        assert result == {'jobs_started': 2}
+        assert all(s.job_name == POPULATE_JOB for s in specs)
+        assert all(s.priority == DIRECT_DOWNLOAD_PRIORITY for s in specs)
+        # The download chain each populate job becomes reads its priority off the payload.
+        assert all(s.args[0]['priority'] == DIRECT_DOWNLOAD_PRIORITY for s in specs)
+
+    @pytest.mark.parametrize(
+        ('payload_priority', 'expected'),
+        [
+            (None, SUBSCRIPTION_DOWNLOAD_PRIORITY),
+            (DIRECT_DOWNLOAD_PRIORITY, DIRECT_DOWNLOAD_PRIORITY),
+        ],
+    )
+    def test_download_chain_takes_the_payload_priority_over_the_source_rule(
+        self, payload_priority, expected
+    ):
+        job = serialize_download_job(
+            DownloadJobDTO(
+                url='https://www.youtube.com/watch?v=Sub00000001',
+                media_type=MediaType.VIDEO,
+                subscription_id=7,
+                priority=payload_priority,
+            )
+        )
+        with (
+            patch('tasks.media._check_storage_quota', return_value=False),
+            patch(
+                'tasks.media._find_duplicate_active_tasks', return_value=(True, False, False, None)
+            ),
+            patch('tasks.media._persist_download_chain_state', return_value=('dl-1', None)),
+            patch('tasks.media.tr_repo') as tr_repo,
+        ):
+            create_download_and_transcript_chains_impl(job)
+
+        assert tr_repo.dispatch_download_chain.call_args.kwargs['priority'] == expected
+
+    def test_on_demand_check_of_a_deleted_subscription_starts_nothing(self):
+        with (
+            patch('tasks.subscriptions.get_subscription_impl', return_value=[]),
+            patch.object(orch, 'submit_from_thread') as submit,
+        ):
+            result = run_subscription_check(JobContext(task_id='t'), 7)
+
+        assert result == {'jobs_started': 0}
+        submit.assert_not_called()
 
     def test_direct_download_fanout_uses_direct_priority(self):
         jobs = [{'url': 'https://www.youtube.com/watch?v=Direct00001', 'user_id': 1}]

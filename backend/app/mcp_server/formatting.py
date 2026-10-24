@@ -76,25 +76,35 @@ class TranscriptHit(BaseModel):
     app_url: str | None
 
 
-class AppliedSearch(BaseModel):
-    query: str
-    keywords: str | None
-    mode: Literal['semantic', 'hybrid']
-    embedding_model: str
-    channels: list[str] | None
-    tags: list[str] | None
-    min_rating: int | None
-    released_from: str | None
-    released_to: str | None
+class AppliedFilters(BaseModel):
+    """The library filters a tool actually applied, after resolving names and dates."""
+
+    channels: list[str] | None = None
     title_contains: str | None = None
+    tags: list[str] | None = None
+    min_rating: int | None = None
+    released_from: str | None = None
+    released_to: str | None = None
     unmatched_channels: list[str] = []
     unmatched_tags: list[str] = []
     notes: list[str] = []
 
 
+class AppliedSearch(AppliedFilters):
+    query: str | None
+    keywords: str | None
+    mode: Literal['semantic', 'hybrid', 'keyword']
+    embedding_model: str | None
+    media_ids: list[int] | None = None
+
+
 class SearchResult(BaseModel):
     applied: AppliedSearch
     results: list[TranscriptHit]
+    offset: int = 0
+    next_offset: int | None = None
+    passages_found: int = 0
+    more_beyond_depth: bool = False
     truncated: bool = False
 
 
@@ -219,9 +229,20 @@ def _answer_format(example: TranscriptHit | None) -> str:
 
 
 def _applied_lines(applied: AppliedSearch) -> list[str]:
-    head = f'Searched ({applied.mode}, {applied.embedding_model}): "{applied.query}"'
-    if applied.keywords:
-        head += f' + keywords "{applied.keywords}"'
+    # Keywords print bare: they may carry their own "quoted phrases".
+    if applied.mode == 'keyword':
+        head = f'Searched (keyword, full-text): keywords {applied.keywords}'
+    else:
+        head = f'Searched ({applied.mode}, {applied.embedding_model}): "{applied.query}"'
+        if applied.keywords:
+            head += f' + keywords {applied.keywords}'
+    # Only the count: echoing the ids back would say which of them the user can see.
+    extra = [f'media: {len(applied.media_ids)} ids'] if applied.media_ids is not None else []
+    return [head, *filter_lines(applied, extra)]
+
+
+def filter_lines(applied: AppliedFilters, extra: list[str] | None = None) -> list[str]:
+    """The `Filters:` line plus what failed to resolve and any notes."""
     filters = []
     if applied.channels is not None:
         filters.append('channels: ' + (', '.join(applied.channels) or 'none matched'))
@@ -233,7 +254,8 @@ def _applied_lines(applied: AppliedSearch) -> list[str]:
         filters.append(f'rating ≥ {applied.min_rating}')
     if applied.released_from or applied.released_to:
         filters.append(f'uploaded {applied.released_from or "…"} to {applied.released_to or "…"}')
-    lines = [head, 'Filters: ' + ('; '.join(filters) if filters else 'none (whole library)')]
+    filters.extend(extra or [])
+    lines = ['Filters: ' + ('; '.join(filters) if filters else 'none (whole library)')]
     if applied.unmatched_channels:
         lines.append('No such channel: ' + ', '.join(applied.unmatched_channels))
     if applied.unmatched_tags:
@@ -248,42 +270,69 @@ def build_search_result(
     limit: int,
     base_url: str,
     *,
-    more_available: bool = False,
+    offset: int = 0,
+    more_beyond_depth: bool = False,
 ) -> tuple[SearchResult, str]:
-    """Turn merged passages into the result and its text, within the response budget.
+    """Turn one page of merged passages into the result and its text.
 
-    `more_available` says the search filled its fetch limit, so passages beyond those
-    fetched may exist even when merging left fewer than `limit` of them.
+    `spans` is the whole ranking the search fetched; the page is `spans[offset:]`, at
+    most `limit` long and cut shorter by the response budget. `next_offset` counts only
+    what was rendered, so a page the budget cut short continues where it stopped.
+    `more_beyond_depth` says the search filled its fetch depth, so passages ranked below
+    everything fetched may exist.
     """
+    page = spans[offset : offset + limit]
     header = '\n'.join(_applied_lines(applied))
-    footer = _answer_format(span_to_hit(spans[0], base_url) if spans[:limit] else None)
-    budget = RESPONSE_MAX_CHARS - len(header) - len(footer) - 200
+    footer = _answer_format(span_to_hit(page[0], base_url) if page else None)
+    budget = RESPONSE_MAX_CHARS - len(header) - len(footer) - 300
 
     hits: list[TranscriptHit] = []
     blocks: list[str] = []
-    truncated = more_available or len(spans) > limit
-    for span in spans[:limit]:
+    for span in page:
         hit = span_to_hit(span, base_url)
         block = _hit_block(hit)
-        if len(block) + 2 > budget:
-            truncated = True
+        # The first passage always renders, so following next_offset always advances.
+        if hits and len(block) + 2 > budget:
             break
         budget -= len(block) + 2
         hits.append(hit)
         blocks.append(block)
 
+    shown_to = offset + len(hits)
+    next_offset = shown_to if shown_to < len(spans) else None
+    found = f'{len(spans)}+' if more_beyond_depth else str(len(spans))
+
     parts = [header, '']
     if hits:
         parts.append(
-            f'{len(hits)} passage(s), best first. Each [B…] id links to the source at that moment:'
+            f'Passages {offset + 1}-{shown_to} of {found} found, best first. '
+            'Each [B…] id links to the source at that moment:'
         )
         parts.append('\n\n'.join(blocks))
+    elif spans:
+        parts.append(f'No passages from offset={offset}: this search found {found}.')
     else:
         parts.append('No matching transcript passages.')
-    if truncated:
-        parts.append('More passages matched; narrow the search to see others.')
+    if next_offset is not None:
+        parts.append(f'Continues: offset={next_offset} shows the next passages of this search.')
+    elif more_beyond_depth:
+        parts.append(
+            'That is as deep as this search ranks; rephrase, add keywords or narrow the '
+            'filters to reach other passages.'
+        )
+    elif hits and offset:
+        parts.append('That is every passage this search found.')
     parts.extend(['', footer])
-    return SearchResult(applied=applied, results=hits, truncated=truncated), '\n'.join(parts)
+    result = SearchResult(
+        applied=applied,
+        results=hits,
+        offset=offset,
+        next_offset=next_offset,
+        passages_found=len(spans),
+        more_beyond_depth=more_beyond_depth,
+        truncated=next_offset is not None or more_beyond_depth,
+    )
+    return result, '\n'.join(parts)
 
 
 # --- library_overview ---
@@ -301,14 +350,6 @@ class TagSummary(BaseModel):
     videos: int
 
 
-class VideoSummary(BaseModel):
-    media_id: int
-    title: str | None
-    uploaded: str | None
-    source_url: str | None
-    app_url: str | None
-
-
 class LibraryOverview(BaseModel):
     videos_with_transcripts: int
     first_upload: str | None
@@ -317,8 +358,8 @@ class LibraryOverview(BaseModel):
     channel_count: int
     channels: list[ChannelSummary]
     tags: list[TagSummary]
-    channel: str | None = None
-    recent_videos: list[VideoSummary] = []
+    channel_offset: int = 0
+    next_channel_offset: int | None = None
 
 
 def render_overview(overview: LibraryOverview) -> str:
@@ -330,33 +371,207 @@ def render_overview(overview: LibraryOverview) -> str:
         + '.',
     ]
     if overview.channels:
-        shown = len(overview.channels)
-        more = overview.channel_count - shown
+        first = overview.channel_offset + 1
+        last = overview.channel_offset + len(overview.channels)
+        whole = first == 1 and last == overview.channel_count
         lines.append('')
         lines.append(
             'Channels (videos, upload span)'
-            + (f', top {shown} of {overview.channel_count}' if more else '')
+            + ('' if whole else f', {first}-{last} of {overview.channel_count}, largest first')
             + ':'
         )
         lines.extend(
             f'- {c.name}: {c.videos}, {c.first_upload or "?"} to {c.last_upload or "?"}'
             for c in overview.channels
         )
+    elif overview.channel_offset:
+        lines.append(f'No channels from channel_offset={overview.channel_offset}.')
+    if overview.next_channel_offset is not None:
+        lines.append(f'More channels: channel_offset={overview.next_channel_offset}.')
     if overview.tags:
         lines.append('')
         lines.append('Your tags: ' + ', '.join(f'{t.name} ({t.videos})' for t in overview.tags))
-    if overview.channel is not None:
-        lines.append('')
-        lines.append(f'Most recent videos from {overview.channel}:')
-        lines.extend(
-            f'- media {v.media_id}: "{v.title or "Untitled"}", uploaded {v.uploaded or "unknown"}'
-            for v in overview.recent_videos
-        )
     lines.append('')
     lines.append(
-        'Pass exact channel names and YYYY-MM-DD dates from this overview to search_transcripts.'
+        'Pass exact channel names and YYYY-MM-DD dates from this overview to search_transcripts, '
+        "list_videos and mention_timeline; list_videos(channels=[…]) lists a channel's videos."
     )
     return '\n'.join(lines)
+
+
+# --- list_videos ---
+
+
+class VideoEntry(BaseModel):
+    media_id: int
+    title: str | None
+    channel: str
+    uploaded: str | None
+    duration_seconds: int | None
+    transcript_blocks: int
+    transcript_chars: int
+    source_url: str | None
+    app_url: str | None
+
+
+class VideoList(BaseModel):
+    applied: AppliedFilters
+    sort: Literal['newest', 'oldest']
+    total: int
+    offset: int
+    videos: list[VideoEntry]
+    next_offset: int | None
+
+
+def _approx_chars(chars: int) -> str:
+    return f'~{chars / 1000:.1f}k chars' if chars >= 1000 else f'{chars} chars'
+
+
+def _video_line(video: VideoEntry) -> str:
+    length = format_timestamp(video.duration_seconds) if video.duration_seconds else 'length ?'
+    line = (
+        f'- media {video.media_id}: "{video.title or "Untitled"}" — {video.channel} — '
+        f'uploaded {video.uploaded or "unknown"} — {length} — '
+        f'{video.transcript_blocks} blocks, {_approx_chars(video.transcript_chars)}'
+    )
+    return line + (f' — {video.source_url}' if video.source_url else '')
+
+
+def build_video_list(
+    applied: AppliedFilters,
+    sort: Literal['newest', 'oldest'],
+    total: int,
+    offset: int,
+    videos: list[VideoEntry],
+) -> tuple[VideoList, str]:
+    """One page of videos and its text, within the response budget.
+
+    Like search pages, `next_offset` counts only the videos that fit, and the first
+    one always does.
+    """
+    footer = (
+        'get_transcript(media_id) reads a video from its start; '
+        'search_transcripts(media_ids=[…]) searches inside a shortlist.'
+    )
+    header = filter_lines(applied)
+    budget = RESPONSE_MAX_CHARS - sum(len(line) + 1 for line in header) - len(footer) - 300
+    shown: list[VideoEntry] = []
+    lines: list[str] = []
+    for video in videos:
+        line = _video_line(video)
+        if shown and len(line) + 1 > budget:
+            break
+        budget -= len(line) + 1
+        shown.append(video)
+        lines.append(line)
+
+    shown_to = offset + len(shown)
+    next_offset = shown_to if shown_to < total else None
+    parts = [*header, '']
+    if shown:
+        parts.append(f'Videos {offset + 1}-{shown_to} of {total}, {sort} first:')
+        parts.extend(lines)
+    elif total:
+        parts.append(f'No videos from offset={offset}: {total} match.')
+    else:
+        parts.append('No transcribed videos match.')
+    if next_offset is not None:
+        parts.append(f'Continues: offset={next_offset} lists the next videos.')
+    parts.extend(['', footer])
+    result = VideoList(
+        applied=applied,
+        sort=sort,
+        total=total,
+        offset=offset,
+        videos=shown,
+        next_offset=next_offset,
+    )
+    return result, '\n'.join(parts)
+
+
+# --- mention_timeline ---
+
+
+class MentionRow(BaseModel):
+    period: str
+    channel: str | None
+    blocks: int
+    videos_with_mentions: int
+    videos: int
+
+
+class MentionTimeline(BaseModel):
+    applied: AppliedFilters
+    terms: list[str]
+    matched_query: str
+    interval: Literal['month', 'year']
+    by_channel: bool
+    total_blocks: int
+    total_videos_with_mentions: int
+    total_videos: int
+    rows: list[MentionRow]
+    rows_omitted: int = 0
+
+
+def keywords_for(terms: list[str]) -> str:
+    """The search_transcripts keywords that match exactly what `terms` were counted by."""
+    return ' '.join(f'"{term}"' if ' ' in term else term for term in terms)
+
+
+def _search_hint(timeline: MentionTimeline) -> str | None:
+    dated = [row for row in timeline.rows if row.period != 'undated' and row.blocks]
+    if not dated:
+        return None
+    busiest = max(dated, key=lambda row: row.blocks).period
+    return (
+        f"To read a period: search_transcripts(keywords='{keywords_for(timeline.terms)}', "
+        f"released_from='{busiest}', released_to='{busiest}')."
+    )
+
+
+def build_mention_timeline(timeline: MentionTimeline) -> tuple[MentionTimeline, str]:
+    """The timeline's text, its table cut to the response budget.
+
+    The totals were summed over every row before any is cut, so they stay exact.
+    """
+    names = ' or '.join(f'"{term}"' for term in timeline.terms)
+    head = f'Mentions of {names} by upload {timeline.interval}'
+    if timeline.matched_query:
+        head += f' (full text: {timeline.matched_query}; counts transcript blocks of ~20 s)'
+    parts = [head + '.', *filter_lines(timeline.applied)]
+    if not timeline.total_blocks:
+        parts.append(f'No passage mentions them in {timeline.total_videos} videos.')
+        return timeline, '\n'.join(parts)
+
+    parts.append(
+        f'{timeline.total_blocks} matching blocks in {timeline.total_videos_with_mentions} '
+        f'of {timeline.total_videos} videos.'
+    )
+    columns = [timeline.interval.capitalize()]
+    if timeline.by_channel:
+        columns.append('Channel')
+    columns += ['Blocks', 'Videos with a mention', 'Videos']
+    hint = _search_hint(timeline)
+    parts += ['', ' | '.join(columns)]
+    budget = RESPONSE_MAX_CHARS - sum(len(p) + 1 for p in parts) - len(hint or '') - 300
+    kept: list[MentionRow] = []
+    for row in timeline.rows:
+        cells = [row.period, *([_cell(row.channel or '')] if timeline.by_channel else [])]
+        line = ' | '.join([*cells, str(row.blocks), str(row.videos_with_mentions), str(row.videos)])
+        if len(line) + 1 > budget:
+            break
+        budget -= len(line) + 1
+        kept.append(row)
+        parts.append(line)
+    omitted = len(timeline.rows) - len(kept)
+    if omitted:
+        parts.append(
+            f"{omitted} more rows did not fit; use interval='year', fewer channels or a "
+            'narrower date range.'
+        )
+    if hint:
+        parts += ['', hint]
+    return timeline.model_copy(update={'rows': kept, 'rows_omitted': omitted}), '\n'.join(parts)
 
 
 # --- get_transcript ---

@@ -155,9 +155,9 @@ channel enumeration plus a DB check per video (minutes for a large channel), and
 both slots at once and stall manual downloads regardless of priority.
 
 **Priority ladder** (`JobSpec.priority`, 0 = highest; the lane pops by `(priority, queue_sequence)`,
-ties by submission order): `0` = explicit Prioritize button and add-subscription, `1` =
-`DIRECT_DOWNLOAD_PRIORITY` (manually-submitted downloads), `5` = `SUBSCRIPTION_DOWNLOAD_PRIORITY` and
-the `JobSpec` default. Constants live in `repositories/task_records/crud.py`. **Priority is not
+ties by submission order): `0` = explicit Prioritize button, add-subscription and a subscription's
+Check now, `1` = `DIRECT_DOWNLOAD_PRIORITY` (manually-submitted downloads, and what a Check now
+finds), `5` = `SUBSCRIPTION_DOWNLOAD_PRIORITY` and the `JobSpec` default. Constants live in `repositories/task_records/crud.py`. **Priority is not
 inherited** — `JobContext` doesn't carry it and the orchestrator copies only `args` into downstream
 specs, so every fan-out site sets it explicitly. Consequence: a subscription backlog can be starved by
 a steady stream of manual downloads. That is intended (explicit user requests beat background sync)
@@ -179,6 +179,14 @@ run_subscription_pipeline (subscriptions lane, serial; plain control flow, early
 
 The fan-out crosses a lane boundary, which is why it throttles the producer rather than the cycle
 (`.claude/rules/orchestrator.md`).
+
+**Check now** (`POST /subscriptions/{id}/check`, owner or admin) runs the same steps for one
+subscription as `SUBSCRIPTION_CHECK_JOB` (`run_subscription_check`), on the same lane, at priority 0
+and **whether or not the subscription is enabled**. What it finds fans out at priority 1, and
+`DownloadJobDTO.priority` carries that through populate to the download chain, which otherwise ranks
+by `subscription_id`. Its fixed `task_id`, `subscription-check-{id}`, collapses repeat presses into one
+channel walk; it is submitted under the *owner's* `user_id`, since `GET /tasks/{id}` lets only that
+user (or an admin) poll an untracked job.
 
 ### Download chain (per job)
 
@@ -289,7 +297,7 @@ Adding a Taskfile target that touches a container has three traps — see
 ## Testing
 
 Backend tests run on the **host** (`cd backend && uv run pytest`, or `task backend:test`) against a
-session-scoped `postgres:16-alpine` testcontainer, so Docker must be up. pytest-asyncio is in `auto`
+session-scoped `pgvector/pgvector:pg17` testcontainer, so Docker must be up. pytest-asyncio is in `auto`
 mode: a plain `async def` test just works — **don't add `@pytest.mark.anyio`**, it is redundant here
 and only re-parametrizes the test id.
 

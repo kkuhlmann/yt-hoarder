@@ -207,6 +207,12 @@ def sync_get_enabled_subscriptions(job_type: str | None = None) -> list[Subscrip
         return list(result.scalars().all())
 
 
+def sync_get_subscription_by_id(id: int) -> Subscription | None:
+    with db.sync_session() as session:
+        stmt = select(Subscription).where(Subscription.id == id)
+        return session.execute(stmt).scalar_one_or_none()
+
+
 def sync_add_subscription(subscription: Subscription) -> Subscription:
     if subscription.date_filter and subscription.date_filter.tzinfo is not None:
         subscription.date_filter = subscription.date_filter.replace(tzinfo=None)

@@ -64,6 +64,25 @@ async def test_sync_get_enabled_subscriptions_excludes_disabled(test_database):
     assert {s.id for s in subscriptions.sync_get_enabled_subscriptions()} == {2}
 
 
+async def test_sync_get_subscription_by_id_includes_disabled(test_database):
+    """The on-demand check reads through this, and it must run on a disabled subscription."""
+    from tasks.subscriptions import get_subscription_impl
+
+    await subscriptions.update_subscription(1, {'enabled': False})
+
+    sub = subscriptions.sync_get_subscription_by_id(1)
+    assert sub is not None
+    assert sub.enabled is False
+    assert [s['id'] for s in get_subscription_impl(1)] == [1]
+
+
+async def test_sync_get_subscription_by_id_missing(test_database):
+    from tasks.subscriptions import get_subscription_impl
+
+    assert subscriptions.sync_get_subscription_by_id(999) is None
+    assert get_subscription_impl(999) == []
+
+
 async def test_delete_subscription(test_database):
     # First verify it exists
     subscription = await subscriptions.get_subscription_by_id(1)

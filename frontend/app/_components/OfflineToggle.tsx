@@ -29,9 +29,10 @@ export function OfflineToggle({ className }: { className?: string }) {
       type="button"
       onClick={() => setOfflineMode(!offlineMode)}
       aria-pressed={offlineMode}
+      aria-label={offlineMode ? "Offline mode" : "Online mode"}
       title={offlineMode ? "Offline mode on — showing downloads only" : "Go offline"}
       className={cn(
-        "items-center gap-1 px-2 py-1 text-xs font-mono rounded transition-colors shrink-0",
+        "items-center px-2 py-1 rounded transition-colors shrink-0",
         offlineMode
           ? "bg-status-warning/20 text-status-warning"
           : "text-text-muted hover:text-matrix hover:bg-matrix/10",
@@ -41,7 +42,6 @@ export function OfflineToggle({ className }: { className?: string }) {
       )}
     >
       <Icon className="h-4 w-4" />
-      <span className="hidden lg:inline">{offlineMode ? "Offline" : "Online"}</span>
     </button>
   )
 }

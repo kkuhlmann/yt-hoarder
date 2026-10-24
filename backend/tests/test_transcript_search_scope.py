@@ -253,6 +253,31 @@ async def test_a_narrow_scope_still_returns_every_matching_block(
         assert len(hits) == 12
 
 
+@pytest.mark.parametrize('weight', WEIGHTS)
+async def test_ties_break_by_block_id_so_pages_stay_stable(clean_database, pgvector_schema, weight):
+    session = db.get_sync_session()
+    try:
+        owner_id = seed_user(session, 'owner')
+        seed_media(
+            session,
+            owner_id=owner_id,
+            url='https://example.com/same',
+            channel='NASA',
+            title='Same Words',
+            released=datetime(2024, 3, 4, tzinfo=UTC),
+            blocks=['spacecraft'] * 6,
+            grant_access_to=owner_id,
+        )
+    finally:
+        session.close()
+
+    hits = await _search(semantic_weight=weight, user_id=owner_id, rating_user_id=owner_id)
+
+    ids = [hit['transcript_block_id'] for hit in hits]
+    assert len(ids) == 6
+    assert ids == sorted(ids)
+
+
 async def test_scope_is_part_of_the_cache_key(library):
     unscoped = await _search(
         semantic_weight=1.0, user_id=library.owner_id, rating_user_id=library.owner_id
@@ -476,3 +501,82 @@ async def test_hits_carry_the_upload_date(library):
     )
 
     assert {hit['media_details']['release_timestamp'] for hit in hits} == {datetime(2024, 3, 4)}
+
+
+@pytest.mark.parametrize('weight', WEIGHTS)
+async def test_media_ids_keep_only_those_media(library, weight):
+    hits = await _search(
+        semantic_weight=weight,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        media_ids=[library.esa_id],
+    )
+
+    assert _media_ids(hits) == {library.esa_id}
+
+
+async def test_media_ids_never_reach_media_the_user_cannot_see(library):
+    hits = await _search(
+        semantic_weight=1.0,
+        user_id=library.stranger_id,
+        rating_user_id=library.stranger_id,
+        media_ids=[library.nasa_id, library.esa_id],
+    )
+
+    assert hits == []
+
+
+async def test_media_ids_are_part_of_the_cache_key(library):
+    nasa = await _search(
+        semantic_weight=1.0,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        media_ids=[library.nasa_id],
+    )
+    esa = await _search(
+        semantic_weight=1.0,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        media_ids=[library.esa_id],
+    )
+
+    assert _media_ids(nasa) == {library.nasa_id}
+    assert _media_ids(esa) == {library.esa_id}
+
+
+@pytest.mark.parametrize('weight', [0.0, 0.5])
+async def test_a_quoted_phrase_matches_only_that_phrase(library, weight):
+    # Both transcripts say "spacecraft"; only NASA's says "orbital insertion".
+    phrase = await _search(
+        semantic_weight=weight,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        fts_text='"orbital insertion"',
+    )
+    reordered = await _search(
+        semantic_weight=0.0,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        fts_text='"insertion orbital"',
+    )
+
+    assert {hit['media_details']['id'] for hit in phrase if hit['fts_rank']} == {library.nasa_id}
+    assert reordered == []
+
+
+async def test_keyword_search_without_a_query_needs_no_embedding(library):
+    class NoEmbedder:
+        def encode(self, *_args, **_kwargs):
+            pytest.fail('a keywords-only search must not embed anything')
+
+    hits = await transcript_service.get_hybrid_search_results(
+        NoEmbedder(),
+        '',
+        semantic_weight=0.0,
+        user_id=library.owner_id,
+        rating_user_id=library.owner_id,
+        fts_text='lander',
+    )
+
+    assert _media_ids(hits) == {library.nasa_id}
+    assert all(hit['similarity'] == hit['fts_rank'] for hit in hits)

@@ -16,8 +16,8 @@ from services.transcript import (
     _semantic_search,
 )
 
-# Every name the three search builders bind by hand. A collision would have the
-# scope silently overwrite one of them.
+# Every name the search builders and the mention timeline bind by hand. A collision
+# would have the scope silently overwrite one of them.
 RESERVED_PARAM_NAMES = {
     'query',
     'embedding',
@@ -28,6 +28,8 @@ RESERVED_PARAM_NAMES = {
     'semantic_weight',
     'keyword_weight',
     'candidate_limit',
+    'unknown_channel',
+    'unit',
 }
 
 
@@ -51,6 +53,9 @@ def test_param_names_never_collide_with_the_hand_bound_ones():
         channels=['NASA', 'ESA'],
         released_from=datetime(2024, 1, 1),
         released_to=datetime(2025, 1, 1),
+        title_contains='launch',
+        has_transcript=True,
+        media_ids=[4, 5],
     )
 
     assert set(params).isdisjoint(RESERVED_PARAM_NAMES)
@@ -83,6 +88,10 @@ def test_title_text_is_bound_never_inlined():
 def test_an_empty_channel_list_narrows_to_nothing_rather_than_nothing_filtered():
     # A caller whose channel names all failed to resolve must not get the whole library.
     assert build_media_scope_subquery(rating_user_id=1, channels=[]) is not None
+
+
+def test_an_empty_media_ids_list_narrows_to_nothing_rather_than_nothing_filtered():
+    assert build_media_scope_subquery(rating_user_id=1, media_ids=[]) is not None
 
 
 def test_search_text_is_bound_never_inlined():

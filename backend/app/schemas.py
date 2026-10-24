@@ -90,6 +90,7 @@ _DOWNLOAD_JOB_CONTEXT_FIELDS = frozenset(
         'playlist_name',
         'source_playlist_url',
         'placeholder_task_id',
+        'priority',
     }
 )
 
@@ -131,6 +132,9 @@ class DownloadJobDTO(BaseModel):
     # running populate job, so _submit_nowait's idempotence guard would see the id
     # already in _handles and silently drop the download.
     placeholder_task_id: str | None = None
+
+    # Queue priority for the download chain. None ranks by source: direct beats subscription.
+    priority: int | None = None
 
     @classmethod
     def from_orm(cls, obj, **extra_fields) -> 'DownloadJobDTO':

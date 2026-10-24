@@ -16,6 +16,8 @@ export type ActionDescriptor<T> = {
   /** Icon shown in the column header legend, when it differs from the row icon. */
   headerIcon?: IconComponent
   onClick?: (row: T) => void
+  /** Leave the action out of this row entirely, e.g. one only the owner may use. */
+  hidden?: (row: T) => boolean
   disabled?: (row: T) => boolean
   /** Tooltip shown instead of `title` while disabled — say *why* it's disabled. */
   disabledTitle?: string
@@ -89,7 +91,7 @@ export function ActionList<T>({
   return (
     <>
       {actions.map((action) =>
-        action.render ? (
+        action.hidden?.(row) ? null : action.render ? (
           // Custom renderers may include non-button elements; the wrapper keeps
           // a stray click on those from reaching the row underneath.
           <span key={action.key} onClick={(e) => e.stopPropagation()}>
