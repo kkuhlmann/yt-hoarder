@@ -166,6 +166,7 @@ def _build_media_conditions(
     title_contains: str | None = None,
     media_types: Sequence[MediaType] | None = None,
     has_transcript: bool = False,
+    media_ids: Sequence[int] | None = None,
 ) -> list:
     """Build WHERE conditions shared by get_all_media_details and get_media_stats.
 
@@ -190,6 +191,10 @@ def _build_media_conditions(
     media_types limits the result to those types; the library passes LIBRARY_MEDIA_TYPES,
     while the transcript search passes none so transcript-only rows stay searchable.
     has_transcript keeps only rows with transcript blocks (the Transcripts view).
+
+    media_ids keeps only those rows, for MCP's search inside a shortlist. Like channels,
+    an empty list matches nothing. Ids the user cannot see still fail the access branch,
+    so passing one never reveals anything.
 
     A user-scoped query always drops transcript-only rows the user has superseded with
     the full media (_not_superseded_condition). The admin all-users view (user_id None)
@@ -258,6 +263,8 @@ def _build_media_conditions(
 
     conditions.extend(_channel_and_release_conditions(channels, released_from, released_to))
     conditions.extend(_title_conditions(title_contains))
+    if media_ids is not None:
+        conditions.append(MediaDetails.id.in_(media_ids))
     return conditions
 
 
@@ -335,15 +342,20 @@ class TranscribedChannel:
     last_release: datetime | None
 
 
-def _transcribed_media_conditions(user_id: int) -> list:
-    """Media the user can see that have at least one transcript block.
+def _transcribed_media_conditions(user_id: int, **filters) -> list:
+    """Media the user can see that have at least one transcript block, narrowed by `filters`.
 
     include_owned for the same reason transcript search passes it: a soft delete
-    drops the owner's MediaAccess row, but they keep the transcript.
+    drops the owner's MediaAccess row, but they keep the transcript. rating_user_id is
+    what makes tag and rating filters apply at all, to the user's own tags and ratings.
     """
-    conditions = _build_media_conditions(user_id=user_id, include_owned=True)
-    conditions.append(MediaDetails.id.in_(sa_select(TranscriptBlock.media_details_id)))
-    return conditions
+    return _build_media_conditions(
+        user_id=user_id,
+        rating_user_id=user_id,
+        include_owned=True,
+        has_transcript=True,
+        **filters,
+    )
 
 
 async def get_transcribed_channels(user_id: int) -> list[TranscribedChannel]:
@@ -366,21 +378,47 @@ async def get_transcribed_channels(user_id: int) -> list[TranscribedChannel]:
         return [TranscribedChannel(*row) for row in result.all()]
 
 
-async def get_recent_transcribed_media(
-    user_id: int, channel: str, limit: int
-) -> list[MediaDetails]:
-    """The channel's most recently uploaded transcribed media the user can see."""
-    conditions = _transcribed_media_conditions(user_id)
-    conditions.append(func.coalesce(MediaDetails.channel, UNKNOWN_CHANNEL) == channel)
-    stmt = (
-        select(MediaDetails)
-        .where(and_(*conditions))
-        .order_by(MediaDetails.release_timestamp.desc().nulls_last(), MediaDetails.id.desc())
-        .limit(limit)
+@dataclass(frozen=True)
+class TranscribedMedia:
+    media: MediaDetails
+    block_count: int
+    text_chars: int
+    transcript_end: float | None
+
+
+async def list_transcribed_media(
+    user_id: int, *, newest_first: bool, offset: int, limit: int, **filters
+) -> tuple[int, list[TranscribedMedia]]:
+    """One page of the user's transcribed media by upload date, and how many there are.
+
+    Undated media come last in either order. `filters` are `_build_media_conditions`'s.
+    """
+    conditions = _transcribed_media_conditions(user_id, **filters)
+    if newest_first:
+        order = (MediaDetails.release_timestamp.desc().nulls_last(), MediaDetails.id.desc())
+    else:
+        order = (MediaDetails.release_timestamp.asc().nulls_last(), MediaDetails.id.asc())
+    count_stmt = sa_select(func.count()).select_from(MediaDetails).where(and_(*conditions))
+    page_stmt = (
+        select(MediaDetails).where(and_(*conditions)).order_by(*order).offset(offset).limit(limit)
     )
     async with db.get_async_session() as session:
-        result = await session.execute(stmt)
-        return list(result.scalars().all())
+        total = (await session.execute(count_stmt)).scalar_one()
+        page = list((await session.execute(page_stmt)).scalars().all())
+        sizes: dict[int, tuple] = {}
+        if page:
+            sizes_stmt = (
+                sa_select(
+                    TranscriptBlock.media_details_id,
+                    func.count(),
+                    func.coalesce(func.sum(func.length(TranscriptBlock.text)), 0),
+                    func.max(TranscriptBlock.end_time),
+                )
+                .where(TranscriptBlock.media_details_id.in_([m.id for m in page]))
+                .group_by(TranscriptBlock.media_details_id)
+            )
+            sizes = {row[0]: tuple(row[1:]) for row in await session.execute(sizes_stmt)}
+    return total, [TranscribedMedia(m, *sizes.get(m.id, (0, 0, None))) for m in page]
 
 
 def _unpack_joined_results(result, has_playback_join: bool) -> tuple[list, dict[int, dict]]:

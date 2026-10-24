@@ -197,9 +197,20 @@ across an untrusted network.
 
 | Tool | What it does |
 |---|---|
-| `library_overview` | Channels, upload-date span and tags, so the agent can pick real channel names and dates |
-| `search_transcripts` | Timestamped passages, best first, filtered by channel, video title, tag, rating and upload-date range. Each result reports exactly what was searched: the semantic phrase, keywords, channels, title, dates and embedding model |
-| `get_transcript` | Reads a video's transcript around a moment, or page by page |
+| `library_overview` | Channels (every one, 100 at a time), upload-date span and tags, so the agent can pick real channel names and dates |
+| `list_videos` | Every transcribed video matching the filters, newest or oldest first, with its length and transcript size, page by page with a total. Lets an agent cover a whole channel or period, or shortlist videos to search |
+| `search_transcripts` | Timestamped passages, best first, a page at a time, filtered by channel, video title, tag, rating, upload-date range or a shortlist of videos. Keywords alone run a pure full-text search, and `"double quotes"` match an exact phrase. Each result reports exactly what was searched: the semantic phrase, keywords, channels, title, dates and embedding model |
+| `mention_timeline` | How often words or phrases came up per upload month or year, optionally per channel, counted across every transcript |
+| `get_transcript` | Reads a video's transcript around a moment, or from start to end page by page |
+
+**How deep an agent can go.** Every tool pages, so nothing is capped at the first screenful:
+
+- a search ranks up to 400 matching transcript blocks, and the agent follows `next_offset` through them;
+- `list_videos` and `get_transcript` page through everything;
+- `mention_timeline` counts every match.
+
+Each response stays under about 20,000 characters, which keeps it within what MCP clients such as
+Claude Code accept from one tool call.
 
 **`public_url` and in-app links.** Every result links both to the source (`youtube.com/…&t=754`) and
 into YT-Hoarder's own player (`/?media=123&t=754`), which also works for audio and for videos since

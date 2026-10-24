@@ -35,3 +35,13 @@ class TestBuildFtsQuery:
 
     def test_whitespace_only_query(self):
         assert _build_fts_query('   \t\n ') == ''
+
+    def test_a_double_quoted_phrase_is_one_lexeme(self):
+        # A multi-word quoted lexeme is to_tsquery's phrase: 'carbon' <-> 'tax'.
+        assert _build_fts_query('"carbon tax" emissions') == "'carbon tax' | 'emissions'"
+
+    def test_an_unpaired_quote_stays_a_plain_word(self):
+        assert _build_fts_query('"carbon tax') == "'\"carbon' | 'tax'"
+
+    def test_empty_quotes_are_dropped(self):
+        assert _build_fts_query('"" launch " "') == "'launch'"

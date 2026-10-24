@@ -10,7 +10,7 @@ How to run the suites and the "don't add `@pytest.mark.anyio`" rule live in the 
 This is the fixture chain and why each piece of it is shaped the way it is.
 
 Backend tests run on the **host** (`cd backend && uv run pytest`, or `task backend:test`) against a
-session-scoped `postgres:16-alpine` testcontainer, so Docker must be up. pytest-asyncio is in `auto`
+session-scoped `pgvector/pgvector:pg17` testcontainer, so Docker must be up. pytest-asyncio is in `auto`
 mode: a plain `async def` test just works — **don't add `@pytest.mark.anyio`**, it is redundant here
 and only re-parametrizes the test id.
 

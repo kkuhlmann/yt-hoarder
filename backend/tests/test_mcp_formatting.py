@@ -1,6 +1,14 @@
-"""The citation text MCP results teach the model to copy."""
+"""The citation text MCP results teach the model to copy, and how results page."""
 
-from mcp_server.formatting import TranscriptHit, _answer_format, citation
+from mcp_server import formatting
+from mcp_server.formatting import (
+    AppliedSearch,
+    TranscriptHit,
+    _answer_format,
+    _Span,
+    build_search_result,
+    citation,
+)
 
 
 def _hit(**overrides) -> TranscriptHit:
@@ -65,3 +73,77 @@ def test_answer_format_without_passages_only_points_at_get_transcript():
     assert _answer_format(None) == (
         'get_transcript(media_id, start_seconds) reads the surrounding transcript.'
     )
+
+
+def _spans(count: int) -> list[_Span]:
+    media = {
+        'id': 1,
+        'title': 'Talk',
+        'channel': 'NASA',
+        'url': 'https://www.youtube.com/watch?v=abc',
+        'status': 'COMPLETE',
+    }
+    return [
+        _Span(
+            media=media,
+            rank=n,
+            start=n * 60.0,
+            end=n * 60.0 + 20,
+            block_ids=[n],
+            texts=[f'passage {n} ' + 'word ' * 50],
+            score=0.5,
+        )
+        for n in range(count)
+    ]
+
+
+def _applied() -> AppliedSearch:
+    return AppliedSearch(
+        query='q',
+        keywords=None,
+        mode='semantic',
+        embedding_model='m',
+        channels=None,
+        tags=None,
+        min_rating=None,
+        released_from=None,
+        released_to=None,
+    )
+
+
+def test_a_page_starts_at_its_offset_and_points_at_the_next():
+    result, text = build_search_result(_applied(), _spans(5), 2, 'http://nas', offset=2)
+
+    assert [hit.block_id for hit in result.results] == [2, 3]
+    assert result.next_offset == 4
+    assert 'Passages 3-4 of 5 found' in text
+    assert 'Continues: offset=4' in text
+
+
+def test_the_last_page_says_it_is_the_last():
+    result, text = build_search_result(_applied(), _spans(5), 2, 'http://nas', offset=4)
+
+    assert [hit.block_id for hit in result.results] == [4]
+    assert result.next_offset is None
+    assert 'That is every passage this search found.' in text
+
+
+def test_next_offset_counts_only_the_passages_that_fit(monkeypatch):
+    monkeypatch.setattr(formatting, 'RESPONSE_MAX_CHARS', 0)
+
+    result, _ = build_search_result(_applied(), _spans(5), 4, 'http://nas', offset=1)
+
+    # Even with no budget a page renders its first passage, so paging always advances.
+    assert [hit.block_id for hit in result.results] == [1]
+    assert result.next_offset == 2
+
+
+def test_a_search_that_filled_its_depth_says_more_may_rank_below():
+    result, text = build_search_result(
+        _applied(), _spans(3), 5, 'http://nas', more_beyond_depth=True
+    )
+
+    assert result.next_offset is None
+    assert result.truncated
+    assert 'of 3+ found' in text
+    assert 'as deep as this search ranks' in text

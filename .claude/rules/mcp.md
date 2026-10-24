@@ -78,6 +78,29 @@ changing the endpoint, the tools or the token rules.
   builds new objects; never annotate a hit in place.
 - **Responses are capped at ~20k characters** (`RESPONSE_MAX_CHARS`): Claude Code warns above 10k
   tokens of tool output and truncates at 25k.
+- **Every page of one search fetches the same `SEARCH_FETCH_DEPTH` hits**, whatever its `offset`;
+  the page is a slice of the merged passages. Never pass `offset` or `limit` through to
+  `get_hybrid_search_results`.
+  - **Determinism:** merging is greedy per video, so merging a different number of hits regroups
+    passages near the edge, and pages would repeat or skip some.
+  - **One cache entry:** with a fixed depth, all pages of a search share one `semantic_cache` entry.
+- **Pagers advance by what they rendered.** `next_offset` (search, `list_videos`) and
+  `next_start_seconds` (`get_transcript`) count only what fit in the character budget, and the first
+  item always renders, so following them always makes progress. `mention_timeline` counts its totals
+  before cutting rows, so they stay exact.
+- **`get_transcript` places its window by `start_time` only** (`get_blocks_in_window`'s anchor).
+  - **Why:** stored blocks written before the aggregator partitioned the timeline overrun their
+    successor's start, so an `end_time > start` window would re-read the previous block on every
+    page.
+  - **Trap:** don't "simplify" it back to an end-time overlap.
+- **Keyword syntax is shared.** `keywords` (search) and `terms` (timeline) both go through
+  `fts_any_of`: any of the alternatives matches, and a multi-word one matches as a phrase.
+  `formatting.keywords_for` turns timeline terms back into search keywords that match exactly the
+  same blocks, and a test pins that round trip.
+- **"Filters that match nothing search nothing"** applies to `list_videos` and `mention_timeline`
+  too. All three go through `_resolve_library_filters`.
+- **`media_ids` echo only their count**, never the ids, so a result can't say which of them the
+  caller can see.
 - **Raise `ToolError` for anything the model should read.** Any other exception reaches the client
   only as "Error executing tool …", which is right for crashes and useless for bad input.
 

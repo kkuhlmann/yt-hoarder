@@ -1,4 +1,4 @@
-from sqlalchemy import and_, delete, text
+from sqlalchemy import and_, delete, func, text
 from sqlmodel import select
 
 from database import db
@@ -35,13 +35,29 @@ async def has_transcript_blocks(media_details_id: int) -> bool:
 async def get_blocks_in_window(
     media_details_id: int, start: float, end: float | None, limit: int
 ) -> list[TranscriptBlock]:
-    """Blocks of one media overlapping [start, end), in playback order.
+    """Blocks of one media from the moment `start` up to `end`, in playback order.
+
+    The window opens on the latest block that starts by `start` and still covers it,
+    or on the first block after `start` when none does. Only start times place it:
+    rows written before the aggregator partitioned the timeline overrun their
+    successor by a cue or more, so matching `end_time > start` would also return the
+    block before a cursor sitting on a block's start, and paging by those starts
+    would repeat that block on every page.
 
     `end=None` reads to the end of the transcript. Access is the caller's to check.
     """
+    anchor = (
+        select(func.max(TranscriptBlock.start_time))
+        .where(
+            TranscriptBlock.media_details_id == media_details_id,
+            TranscriptBlock.start_time <= start,
+            TranscriptBlock.end_time > start,
+        )
+        .scalar_subquery()
+    )
     conditions = [
         TranscriptBlock.media_details_id == media_details_id,
-        TranscriptBlock.end_time > start,
+        TranscriptBlock.start_time >= func.coalesce(anchor, start),
     ]
     if end is not None:
         conditions.append(TranscriptBlock.start_time < end)
@@ -54,6 +70,17 @@ async def get_blocks_in_window(
         )
         result = await session.execute(stmt)
         return list(result.scalars().all())
+
+
+async def get_next_block_start(media_details_id: int, after: float) -> float | None:
+    """When the first block starting after `after` begins, or None at the end."""
+    async with db.get_async_session() as session:
+        stmt = select(func.min(TranscriptBlock.start_time)).where(
+            TranscriptBlock.media_details_id == media_details_id,
+            TranscriptBlock.start_time > after,
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
 
 async def get_all_blocks(media_details_id: int) -> list[TranscriptBlock]:

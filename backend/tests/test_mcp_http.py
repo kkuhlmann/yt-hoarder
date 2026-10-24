@@ -29,6 +29,13 @@ from services import transcript as transcript_service
 from tests.transcript_seed import StubEmbedder, seed_media, seed_user
 
 ACCEPT = {'Accept': 'application/json, text/event-stream'}
+TOOL_NAMES = {
+    'library_overview',
+    'list_videos',
+    'search_transcripts',
+    'mention_timeline',
+    'get_transcript',
+}
 
 
 @pytest.fixture(autouse=True)
@@ -140,11 +147,7 @@ async def test_both_spellings_of_the_path_work(mcp_server, two_users, path):
         response = await _post(client, token, _rpc('tools/list'), path=path)
 
         assert response.status_code == 200
-        assert {t['name'] for t in response.json()['result']['tools']} == {
-            'library_overview',
-            'search_transcripts',
-            'get_transcript',
-        }
+        assert {t['name'] for t in response.json()['result']['tools']} == TOOL_NAMES
 
 
 def test_server_runs_stateless(mcp_server):
@@ -349,6 +352,6 @@ async def test_the_sdk_client_negotiates_and_calls_tools(mcp_server, two_users):
             result = await client.call_tool('search_transcripts', {'query': 'spacecraft'})
             negotiated = client.protocol_version
 
-    assert {t.name for t in tools} == {'library_overview', 'search_transcripts', 'get_transcript'}
+    assert {t.name for t in tools} == TOOL_NAMES
     assert {hit['media_id'] for hit in result.structured_content['results']} == {alice_media}
     assert negotiated

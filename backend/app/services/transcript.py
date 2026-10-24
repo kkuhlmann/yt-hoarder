@@ -2,15 +2,19 @@ import contextlib
 import gzip
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import ceil, floor
+from typing import Literal
 
 from cachetools import TTLCache
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import repositories.media_details as md_repo
 import repositories.settings as settings_repo
@@ -32,8 +36,9 @@ from ytdlp.subtitles import find_subtitle_file, parse_subtitle_file
 
 # TTL bounds how long a stale entry can outlive an access change: results are
 # per-user but there is no invalidation on share/unshare or new transcripts, so
-# without expiry a revoked user keeps cached hits until LRU eviction.
-semantic_cache = TTLCache(maxsize=128, ttl=300)
+# without expiry a revoked user keeps cached hits until LRU eviction. Sized in hits,
+# not entries: an MCP search caches a few hundred so all its pages share one entry.
+semantic_cache = TTLCache(maxsize=20_000, ttl=300, getsizeof=lambda hits: max(1, len(hits)))
 
 FFPROBE_TIMEOUT_SECONDS = 10
 FFMPEG_EXTRACT_TIMEOUT_SECONDS = 600
@@ -279,31 +284,37 @@ def _aggregate_segments_into_blocks(
     transcript_blocks = []
     block_text = ''
     block_start = floor(raw_segments[0][0])
+    block_end = block_start + 1
     if transcript_model is None:
         transcript_model = settings.transcription.whisper_model
 
     for start_time, end_time, segment_text in raw_segments:
-        if (floor(start_time) - block_start) > block_duration:
+        segment_start = floor(start_time)
+        if (segment_start - block_start) > block_duration:
+            # Cues overlap their successors (YouTube's roll-up captions by seconds), so a
+            # block is cut off where the next one starts: blocks partition the timeline.
             transcript_blocks.append(
                 TranscriptBlock(
                     text=block_text.strip(),
                     start_time=block_start,
-                    end_time=ceil(end_time),
+                    end_time=min(block_end, segment_start),
                     media_details_id=media_details_id,
                     transcript_model=transcript_model,
                 )
             )
             block_text = ''
-            block_start = floor(start_time)
+            block_start = segment_start
+            block_end = block_start + 1
 
         block_text += f' {segment_text.strip()}'
+        block_end = max(block_end, ceil(end_time))
 
     if block_text.strip():
         transcript_blocks.append(
             TranscriptBlock(
                 text=block_text.strip(),
                 start_time=block_start,
-                end_time=ceil(raw_segments[-1][1]),
+                end_time=block_end,
                 media_details_id=media_details_id,
                 transcript_model=transcript_model,
             )
@@ -644,23 +655,137 @@ def _quote_tsquery_term(term: str) -> str:
     return f"'{escaped}'"
 
 
+# A double-quoted run is one alternative; anything else splits on whitespace. A quote
+# with no partner never opens a phrase, it just stays on its word as plain text.
+_FTS_TOKEN = re.compile(r'"([^"]*)"|(\S+)')
+
+
+def fts_any_of(alternatives: Iterable[str]) -> str:
+    """A tsquery input matching any of `alternatives`, multi-word ones as exact phrases.
+
+    Each alternative is wrapped as one quoted lexeme because to_tsquery parses
+    operator syntax: an unquoted '!' or "'" out of ordinary prose is a syntax error
+    that fails the whole statement. Backslash must be escaped too, and before the
+    apostrophe — inside a quoted lexeme it escapes the next character, so a term
+    ending in one would swallow its own closing quote. A quoted lexeme holding several
+    words is how to_tsquery spells a phrase: `'carbon tax'` parses to
+    `'carbon' <-> 'tax'`.
+    """
+    return ' | '.join(_quote_tsquery_term(a) for a in alternatives if a.strip())
+
+
+def split_fts_terms(search_query: str) -> list[str]:
+    """The alternatives in a keyword string: "double-quoted phrases" and bare words."""
+    return [phrase or word for phrase, word in _FTS_TOKEN.findall(search_query)]
+
+
 def _build_fts_query(search_query: str) -> str:
     """Convert a search string into an OR-based tsquery input.
 
-    Splits on whitespace and joins with ' | ' so that documents matching
-    ANY term are returned, with ts_rank_cd ranking multi-term matches higher.
-
-    Each term is wrapped as a quoted lexeme because to_tsquery parses operator
-    syntax: an unquoted '!' or "'" out of ordinary prose is a syntax error that
-    fails the whole statement. Backslash must be escaped too, and before the
-    apostrophe — inside a quoted lexeme it escapes the next character, so a term
-    ending in one would swallow its own closing quote. Quoting is a no-op for
-    terms that already parsed.
+    Documents matching ANY bare word or "quoted phrase" are returned, with ts_rank_cd
+    ranking multi-term matches higher.
     """
-    terms = search_query.split()
-    if not terms:
-        return ''
-    return ' | '.join(_quote_tsquery_term(t) for t in terms)
+    return fts_any_of(split_fts_terms(search_query))
+
+
+@dataclass(frozen=True)
+class MentionCount:
+    period: datetime | None
+    channel: str | None
+    videos: int
+    videos_with_mentions: int
+    blocks: int
+
+
+async def get_mention_timeline(
+    terms: list[str],
+    *,
+    interval: Literal['month', 'year'],
+    by_channel: bool,
+    user_id: int,
+    **filters,
+) -> tuple[str, list[MentionCount]]:
+    """Exhaustive full-text counts of `terms` per upload period of the user's transcripts.
+
+    Each term matches as an exact phrase (see `fts_any_of`), and a block counts once
+    however many it contains. Every transcribed video in scope counts toward its
+    period's `videos`, mentions or not, so a count can be read against how much was
+    uploaded then; `channel` is None unless `by_channel`. `filters` are
+    `_build_media_conditions`'s. Returns how Postgres read the terms, e.g.
+    `'carbon' <-> 'tax' | 'emiss'`, which is '' (and the rows empty) when every term
+    is a stop word.
+    """
+    fts_query = fts_any_of(terms)
+    subquery, scope_params = md_repo.build_media_scope_subquery(
+        user_id=user_id,
+        rating_user_id=user_id,
+        include_owned=True,
+        has_transcript=True,
+        **filters,
+    )
+    channel = 's.channel' if by_channel else 'NULL::text'
+    group_by = 's.period, s.channel' if by_channel else 's.period'
+    order_by = (
+        's.period NULLS LAST, blocks DESC, s.channel' if by_channel else 's.period NULLS LAST'
+    )
+    sql = f"""
+        WITH scoped AS (
+            SELECT
+                md.id,
+                coalesce(md.channel, :unknown_channel) AS channel,
+                date_trunc(:unit, md.release_timestamp) AS period
+            FROM media_details md
+            WHERE md.id IN ({subquery})
+        ),
+        hits AS (
+            SELECT tb.media_details_id AS media_id, count(*) AS blocks
+            FROM transcript_blocks tb
+            WHERE tb.text_search @@ to_tsquery('english', :fts_query)
+                AND tb.media_details_id IN (SELECT id FROM scoped)
+            GROUP BY tb.media_details_id
+        )
+        SELECT
+            s.period,
+            {channel} AS channel,
+            count(*) AS videos,
+            count(h.media_id) AS videos_with_mentions,
+            coalesce(sum(h.blocks), 0) AS blocks
+        FROM scoped s
+        LEFT JOIN hits h ON h.media_id = s.id
+        GROUP BY {group_by}
+        ORDER BY {order_by}
+    """  # noqa: S608 — only fixed fragments and the compiled scope are interpolated
+    async with db.get_async_session() as session:
+        matched = (
+            await session.execute(
+                text("SELECT to_tsquery('english', :fts_query)::text"), {'fts_query': fts_query}
+            )
+        ).scalar_one()
+        if not matched:
+            return '', []
+        result = await session.execute(
+            text(sql),
+            {
+                'fts_query': fts_query,
+                'unit': interval,
+                'unknown_channel': md_repo.UNKNOWN_CHANNEL,
+                **scope_params,
+            },
+        )
+        return matched, [MentionCount(*row) for row in result]
+
+
+async def describe_fts_query(keywords: str) -> str:
+    """How Postgres reads a keyword string, e.g. `'carbon' <-> 'tax' | 'emiss'`.
+
+    An empty result means every term was a stop word, so the search matches nothing.
+    """
+    async with db.get_async_session() as session:
+        result = await session.execute(
+            text("SELECT to_tsquery('english', :fts_query)::text"),
+            {'fts_query': _build_fts_query(keywords)},
+        )
+        return result.scalar_one()
 
 
 def _row_to_dict(row) -> dict:
@@ -746,6 +871,39 @@ def _scope_clause(scope: _MediaScope | None) -> str:
     return f'AND tb.media_details_id IN ({scope.subquery})'
 
 
+_HNSW_EF_SEARCH_DEFAULT = 40
+_HNSW_EF_SEARCH_MAX = 1000
+# Bounds the extra walking for a scope that matches almost nothing in the graph.
+_HNSW_MAX_SCAN_TUPLES = 50_000
+
+
+def _hnsw_ef_search(depth: int) -> int:
+    return max(_HNSW_EF_SEARCH_DEFAULT, min(_HNSW_EF_SEARCH_MAX, depth))
+
+
+async def _use_iterative_index_scan(session: AsyncSession, depth: int) -> None:
+    """Let an HNSW scan later in this transaction return `depth` rows.
+
+    An HNSW scan yields at most `hnsw.ef_search` rows (40 by default) and the scope
+    filters them only afterwards, so without this a deep or scoped search on the
+    index path comes back short while looking successful. An iterative scan keeps
+    walking the graph until the LIMIT is met, in strict distance order so pages of
+    one ranking stay consistent. `set_config(..., true)` is transaction-local: the
+    pooled connection is back on the defaults once the session commits.
+    """
+    await session.execute(
+        text(
+            "SELECT set_config('hnsw.iterative_scan', 'strict_order', true), "
+            "set_config('hnsw.ef_search', :ef_search, true), "
+            "set_config('hnsw.max_scan_tuples', :max_scan_tuples, true)"
+        ),
+        {
+            'ef_search': str(_hnsw_ef_search(depth)),
+            'max_scan_tuples': str(_HNSW_MAX_SCAN_TUPLES),
+        },
+    )
+
+
 def _scoped_vector_cte(scope: _MediaScope, distance_param: str) -> str:
     """Every in-scope distance, materialized.
 
@@ -785,6 +943,7 @@ async def get_hybrid_search_results(
     released_to: datetime | None = None,
     fts_text: str | None = None,
     title_contains: str | None = None,
+    media_ids: list[int] | None = None,
 ) -> list[dict]:
     """
     Search transcript blocks using hybrid keyword + vector search with Reciprocal Rank Fusion.
@@ -804,7 +963,9 @@ async def get_hybrid_search_results(
             (released_to exclusive); see `_build_media_conditions`.
         title_contains: like `standard_search` but matching only the title, never the channel.
         fts_text: the full-text side's query when it should differ from the embedded
-            `search_query`, so exact names can boost a paraphrased semantic query.
+            `search_query`, so exact names can boost a paraphrased semantic query. In pure
+            keyword mode an empty `search_query` skips the embedding altogether.
+        media_ids: only these media; an empty list matches nothing.
 
     The returned list is the cached object itself: callers must not mutate it.
     """
@@ -829,6 +990,7 @@ async def get_hybrid_search_results(
         released_to,
         fts_text,
         title_contains,
+        tuple(sorted(media_ids)) if media_ids is not None else None,
     )
     if cache_key in semantic_cache:
         return semantic_cache[cache_key]
@@ -848,6 +1010,7 @@ async def get_hybrid_search_results(
         released_from=released_from,
         released_to=released_to,
         title_contains=title_contains,
+        media_ids=media_ids,
     )
     # Nothing in scope: answer without paying for an embedding.
     if scope is not None and scope.empty:
@@ -862,7 +1025,9 @@ async def get_hybrid_search_results(
             model, search_query, semantic_weight, limit, scope, fts_text
         )
 
-    semantic_cache[cache_key] = results
+    # cachetools refuses a single value larger than the whole cache.
+    with contextlib.suppress(ValueError):
+        semantic_cache[cache_key] = results
     return results
 
 
@@ -875,8 +1040,9 @@ async def _semantic_search(
     """Pure vector cosine similarity search."""
     query_embedding = model.encode([search_query], normalize_embeddings=True)[0]
     query_str = _embedding_to_pgvector_str(query_embedding.tolist())
+    exact = scope is not None and scope.exact
 
-    if scope is not None and scope.exact:
+    if exact:
         sql = f"""
             WITH {_scoped_vector_cte(scope, 'query')}
             SELECT
@@ -898,7 +1064,7 @@ async def _semantic_search(
             FROM scoped_vec s
             JOIN transcript_blocks tb ON tb.id = s.id
             JOIN media_details md ON md.id = tb.media_details_id
-            ORDER BY s.dist ASC
+            ORDER BY s.dist ASC, tb.id
             LIMIT :limit
         """  # noqa: S608
     else:
@@ -932,6 +1098,8 @@ async def _semantic_search(
         params.update(scope.params)
 
     async with db.get_async_session() as session:
+        if not exact:
+            await _use_iterative_index_scan(session, limit)
         result = await session.execute(text(sql), params)
         rows = result.fetchall()
 
@@ -945,10 +1113,21 @@ async def _keyword_search(
     scope: _MediaScope | None = None,
     fts_text: str | None = None,
 ) -> list[dict]:
-    """Pure keyword search via native PostgreSQL FTS. Ranked by ts_rank_cd, display score is cosine similarity."""
-    query_embedding = model.encode([search_query], normalize_embeddings=True)[0]
-    query_str = _embedding_to_pgvector_str(query_embedding.tolist())
+    """Pure keyword search via native PostgreSQL FTS, ranked by ts_rank_cd.
+
+    The display score is cosine similarity to `search_query`, or the FTS rank itself
+    when there is no query to embed (MCP's keywords-only search).
+    """
     fts_query = _build_fts_query(fts_text or search_query)
+    params: dict = {'fts_query': fts_query, 'limit': limit}
+    if search_query.strip():
+        query_embedding = model.encode([search_query], normalize_embeddings=True)[0]
+        params['embedding'] = _embedding_to_pgvector_str(query_embedding.tolist())
+        score = '1.0 - (te.embedding <=> :embedding)'
+        embedding_join = 'JOIN transcript_embeddings te ON te.transcript_block_id = tb.id'
+    else:
+        score = 'fr.fts_rank'
+        embedding_join = ''
 
     sql = f"""
         WITH fts_ranked AS (
@@ -958,7 +1137,7 @@ async def _keyword_search(
             FROM transcript_blocks tb
             WHERE tb.text_search @@ to_tsquery('english', :fts_query)
                 {_scope_clause(scope)}
-            ORDER BY fts_rank DESC
+            ORDER BY fts_rank DESC, tb.id
             LIMIT :limit
         )
         SELECT
@@ -975,16 +1154,15 @@ async def _keyword_search(
             md.duration,
             md.thumbnail_path,
             md.release_timestamp,
-            1.0 - (te.embedding <=> :embedding) as score,
+            {score} as score,
             fr.fts_rank as fts_rank
         FROM fts_ranked fr
         JOIN transcript_blocks tb ON tb.id = fr.id
         JOIN media_details md ON md.id = tb.media_details_id
-        JOIN transcript_embeddings te ON te.transcript_block_id = tb.id
-        ORDER BY fr.fts_rank DESC
+        {embedding_join}
+        ORDER BY fr.fts_rank DESC, tb.id
     """  # noqa: S608
 
-    params: dict = {'fts_query': fts_query, 'embedding': query_str, 'limit': limit}
     if scope is not None:
         params.update(scope.params)
 
@@ -1010,14 +1188,15 @@ async def _hybrid_rrf_search(
 
     keyword_weight = 1.0 - semantic_weight
     candidate_limit = limit * 3  # Fetch more candidates for better fusion
+    exact = scope is not None and scope.exact
 
-    if scope is not None and scope.exact:
+    if exact:
         vector_cte = f"""
             {_scoped_vector_cte(scope, 'embedding')},
             vector_search AS (
-                SELECT id, ROW_NUMBER() OVER (ORDER BY dist) AS rank
+                SELECT id, ROW_NUMBER() OVER (ORDER BY dist, id) AS rank
                 FROM scoped_vec
-                ORDER BY dist ASC
+                ORDER BY dist ASC, id
                 LIMIT :candidate_limit
             )
         """  # noqa: S608
@@ -1042,12 +1221,13 @@ async def _hybrid_rrf_search(
                 tb.id,
                 ts_rank_cd(tb.text_search, to_tsquery('english', :fts_query)) AS fts_rank,
                 ROW_NUMBER() OVER (
-                    ORDER BY ts_rank_cd(tb.text_search, to_tsquery('english', :fts_query)) DESC
+                    ORDER BY ts_rank_cd(tb.text_search, to_tsquery('english', :fts_query)) DESC,
+                        tb.id
                 ) AS rank
             FROM transcript_blocks tb
             WHERE tb.text_search @@ to_tsquery('english', :fts_query)
                 {_scope_clause(scope)}
-            ORDER BY fts_rank DESC
+            ORDER BY fts_rank DESC, tb.id
             LIMIT :candidate_limit
         )
         SELECT
@@ -1075,7 +1255,8 @@ async def _hybrid_rrf_search(
             {_scope_clause(scope)}
         ORDER BY
             :semantic_weight * COALESCE(1.0 / (60 + v.rank), 0.0) +
-            :keyword_weight * COALESCE(1.0 / (60 + k.rank), 0.0) DESC
+            :keyword_weight * COALESCE(1.0 / (60 + k.rank), 0.0) DESC,
+            tb.id
         LIMIT :limit
     """  # noqa: S608
 
@@ -1091,6 +1272,8 @@ async def _hybrid_rrf_search(
         params.update(scope.params)
 
     async with db.get_async_session() as session:
+        if not exact:
+            await _use_iterative_index_scan(session, candidate_limit)
         result = await session.execute(text(sql), params)
         rows = result.fetchall()
 
