@@ -91,7 +91,7 @@ RECOVERY_LIMITER = SlidingWindowLimiter(limit=10, window_seconds=3600)
 
 # MCP calls are cheap to make and an agent may fan out several searches per question,
 # so the per-token budget is generous; it exists to stop a runaway loop, not normal use.
-MCP_TOKEN_LIMITER = SlidingWindowLimiter(limit=120, window_seconds=60)
+MCP_TOKEN_LIMITER = SlidingWindowLimiter(limit=180, window_seconds=60)
 # Counts only failed MCP authentications, per client address. A 256-bit token cannot be
 # guessed, so this is about keeping junk requests off the database, not brute force.
 MCP_AUTH_FAIL_LIMITER = SlidingWindowLimiter(limit=30, window_seconds=300)

@@ -219,7 +219,7 @@ which is right when your browser and the agent reach the server by the same name
 address you open the app at when they differ, or when a reverse proxy rewrites the `Host` header.
 Behind a TLS-terminating proxy, also set `FORWARDED_ALLOW_IPS` so links come out as `https`.
 
-**Limits.** 120 requests a minute per token. Repeated failed authentications from one address are
+**Limits.** 180 requests a minute per token. Repeated failed authentications from one address are
 locked out for a few minutes.
 
 ## Dev-mode networking
