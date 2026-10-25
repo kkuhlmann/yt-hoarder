@@ -68,6 +68,17 @@ export function useFetchEffect(
   // effect has no other way to tell them apart.
   const quietRef = useRef(false)
 
+  // React's setState reads `window` even for an unmounted owner, and a test
+  // environment can be torn down before an aborted run settles. Set on setup,
+  // not at declaration, so StrictMode's remount turns it back on.
+  const mountedRef = useRef(false)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
   const refetch = useCallback(() => setRefetchNonce((n) => n + 1), [])
 
   // A poll tick refreshes data the user is already looking at. Raising the
@@ -110,7 +121,7 @@ export function useFetchEffect(
       .finally(() => {
         // Runs for quiet runs too: a poll that supersedes a user-initiated run
         // inherits responsibility for clearing the flag that run raised.
-        if (runId === runIdRef.current) setIsLoading(false)
+        if (mountedRef.current && runId === runIdRef.current) setIsLoading(false)
       })
 
     return () => controller.abort()
