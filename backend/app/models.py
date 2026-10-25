@@ -106,37 +106,49 @@ class SourceType(str, Enum):
 # re-check them on a yt-dlp bump, since a client's policy can change under a stable name.
 #
 # Cookie support for age-restricted content:
-#   SUPPORTS cookies: web, web_safari, mweb, web_creator, web_embedded, web_music, tv, tv_downgraded
+#   SUPPORTS cookies: web, web_safari, mweb, web_creator, web_embedded, web_music, tv, tv_samsung,
+#                     tv_downgraded
 #   NO cookie support: visionos, android_vr, android, ios, tv_simply
 VALID_PLAYER_CLIENTS = [
     # No PO token required
+    'tv_samsung',  # No PO token, needs the JS player, cookie-capable
     'visionos',  # No PO token, no JS player either, no cookies support
     'tv',  # No PO token, may have DRM
-    'tv_downgraded',  # No PO token, cookie-capable
-    'web_embedded',  # No PO token, only embeddable videos (yt-dlp's first choice with cookies)
+    'web_embedded',  # No PO token, only embeddable videos; only HLS in SABR-only sessions
     # PO token supported (provided automatically by bgutil-pot)
     'web',  # PO token supported, only SABR formats
     'web_safari',  # PO token supported, HLS (m3u8) formats
     'tv_simply',  # PO token required (GVS), no cookies support
     'ios',  # Requires iOSGuard PO token (not provided by bgutil-pot), no cookies support
-    'mweb',  # PO token required (GVS), mobile web
+    'mweb',  # PO token required (GVS), mobile web; SABR-only in some sessions (yt-dlp #17666)
     'web_music',  # PO token required (GVS), YouTube Music
     'web_creator',  # PO token required (GVS), requires cookies
     'android',  # PO token required (GVS/Player), no cookies support
-    # Kept selectable, but YouTube 403s every format it returns as of 2026-08-17, which
-    # is why yt-dlp dropped it from its own defaults (yt-dlp PR #17461). Do not default to it.
+    # Kept selectable, but neither should be defaulted to. YouTube 403s every format
+    # android_vr returns as of 2026-08-17 (yt-dlp PR #17461), and tv_downgraded fails with
+    # "The page needs to be reloaded" for sessions served the TV player-JS experiment (yt-dlp
+    # #17389) - yt-dlp replaced it with tv_samsung in every default list in 2026.10.21.
     'android_vr',  # PO token required (GVS), no cookies support
+    'tv_downgraded',  # No PO token, cookie-capable
 ]
 
-# visionos leads because it is the only client needing neither a PO token nor a JS player,
-# and it is yt-dlp's own first anonymous choice since 2026.08.19. The rest is depth yt-dlp's
-# two-client default does not carry: a PO-token client, an HLS client, and an embed fallback.
-DEFAULT_PLAYER_CLIENTS = ['visionos', 'tv_simply', 'web_safari', 'web', 'web_embedded']
+# tv_samsung leads because it is yt-dlp's own first anonymous choice since 2026.10.21 and needs
+# no PO token, only the JS runtime the image ships. visionos follows as the only client needing
+# neither. The rest is depth yt-dlp's default does not carry: a PO-token client, an HLS client,
+# and an embed fallback.
+DEFAULT_PLAYER_CLIENTS = [
+    'tv_samsung',
+    'visionos',
+    'tv_simply',
+    'web_safari',
+    'web',
+    'web_embedded',
+]
 
 # Default player clients when cookies are active - only clients that support cookie-based age-gate
 # bypass, so visionos cannot lead here. Order follows yt-dlp's own authenticated default
-# (web_embedded, tv_downgraded, web), then adds the two cookie-capable clients it leaves out.
-DEFAULT_COOKIES_PLAYER_CLIENTS = ['web_embedded', 'tv_downgraded', 'web', 'web_safari', 'mweb']
+# (web_embedded, tv_samsung, web), then adds the two cookie-capable clients it leaves out.
+DEFAULT_COOKIES_PLAYER_CLIENTS = ['web_embedded', 'tv_samsung', 'web', 'web_safari', 'mweb']
 
 
 class User(SQLModel, table=True):

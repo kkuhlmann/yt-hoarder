@@ -592,8 +592,8 @@ def upgrade() -> None:
             subscriptions_lane_concurrency, ml_lane_concurrency, updated_at
         ) VALUES (
             1, 60, 0, 0,
-            24, '["visionos", "tv_simply", "web_safari", "web", "web_embedded"]',
-            'RETRIES_ONLY', '["web_embedded", "tv_downgraded", "web", "web_safari", "mweb"]',
+            24, '["tv_samsung", "visionos", "tv_simply", "web_safari", "web", "web_embedded"]',
+            'RETRIES_ONLY', '["web_embedded", "tv_samsung", "web", "web_safari", "mweb"]',
             600, 20,
             false, 25,
             25, 10,

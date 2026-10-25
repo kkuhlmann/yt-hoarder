@@ -28,6 +28,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   cleanup()
   vi.useRealTimers()
 })
@@ -106,5 +107,28 @@ describe("useFetchEffect", () => {
 
     expect(run).toHaveBeenCalledTimes(3)
     expect(result.current.isLoading).toBe(true)
+  })
+
+  it("leaves its state alone once its owner has unmounted", async () => {
+    // Vitest tears jsdom down after a file's last test, which can land before a fetch
+    // that test started has settled, and React's setState reads `window` even for an
+    // unmounted owner. Stubbing `window` away reproduces that teardown on demand.
+    vi.useRealTimers()
+    const rejections: unknown[] = []
+    const onRejection = (reason: unknown) => rejections.push(reason)
+    process.on("unhandledRejection", onRejection)
+    try {
+      const { run, settle } = makeRun()
+      const { unmount } = renderHook(() => useFetchEffect(run, []))
+      unmount()
+
+      vi.stubGlobal("window", undefined)
+      await settle(0)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    } finally {
+      process.off("unhandledRejection", onRejection)
+    }
+
+    expect(rejections).toEqual([])
   })
 })
