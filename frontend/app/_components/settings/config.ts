@@ -41,9 +41,9 @@ export const SETTINGS_CONFIG: SettingsConfig = {
       description: "YouTube player clients for yt-dlp (fallback order)",
       type: "list",
       options: [
+        { value: "tv_samsung", label: "tv_samsung" },
         { value: "visionos", label: "visionos" },
         { value: "tv", label: "tv" },
-        { value: "tv_downgraded", label: "tv_downgraded" },
         { value: "web_embedded", label: "web_embedded" },
         { value: "web", label: "web" },
         { value: "web_safari", label: "web_safari" },
@@ -54,6 +54,7 @@ export const SETTINGS_CONFIG: SettingsConfig = {
         { value: "web_creator", label: "web_creator" },
         { value: "android", label: "android" },
         { value: "android_vr", label: "android_vr" },
+        { value: "tv_downgraded", label: "tv_downgraded" },
       ],
     },
   ],

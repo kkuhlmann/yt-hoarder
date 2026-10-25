@@ -45,6 +45,11 @@ problem rather than yt-dlp or the player clients:
   `ios`, or `android_vr` (YouTube has rejected every format it returns since August 2026), remove
   them — none is appropriate for this workload. "Reset to defaults" clears them.
 
+**"The page needs to be reloaded" (`tv_downgraded player response playability status:
+UNPLAYABLE`).** Since autumn 2026 YouTube serves some sessions a TV player that `tv_downgraded`
+cannot use. Remove `tv_downgraded` from both player-client lists under Settings; `tv_samsung` is
+its replacement and is already in the defaults. "Reset to defaults" does both.
+
 **Stuck or orphaned tasks.** Task state lives entirely in PostgreSQL, so queued or interrupted tasks
 resume automatically after a restart. For a clean slate, cancel pending tasks from the Tasks tab, set
 `tasks.purge_on_startup: true` in `config.yml`, or run `task clean` for a full reset (deletes the

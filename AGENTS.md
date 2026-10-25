@@ -268,8 +268,9 @@ them, and an owner can't lose `owner_id` — which is also why the subscription 
 
 ## yt-dlp Configuration
 
-Browser impersonation and player-client settings avoid YouTube blocking. The two facts that matter
+Browser impersonation and player-client settings avoid YouTube blocking. The three facts that matter
 from outside `ytdlp/`:
+- **Every yt-dlp version bump goes through the `upgrading-yt-dlp` skill** — a hand edit of the floor in `backend/pyproject.toml`, a `uv lock --upgrade-package yt-dlp`, or a Dependabot PR moving it in `backend/uv.lock` — before the lock is committed or the PR merged. `player_client` is passed explicitly, so upstream's default-client changes never take effect on their own; the skill reads the release notes, the YouTube PRs' comment threads and a diff of yt-dlp's client table to decide what the app has to change with it
 - **Challenge solving**: yt-dlp ≥2025.11.12 needs an external JS runtime for YouTube `sig`/`n` challenges — **Deno ≥2.3.0** (auto-discovered from PATH) plus the `yt-dlp-ejs` dep. Deno is pinned via the `DENO_VERSION` ARG in `Dockerfile.prod`; too-old Deno → `Signature solving failed` → `Requested format is not available`
 - Defaults live in `models.py` (`DEFAULT_PLAYER_CLIENTS` / `DEFAULT_COOKIES_PLAYER_CLIENTS`) and **only affect a fresh `app_settings` row** — existing installs keep stored values, so change them via the Settings UI, or ship a data migration as `realign_player_clients` does. Watch for clients yt-dlp removes upstream (e.g. `tv_embedded`) *and* for ones it keeps but demotes: `android_vr` still exists, but YouTube 403s every format it returns as of 2026-08-17, so a stored list still leading with it silently caps downloads at whatever the next client offers
 

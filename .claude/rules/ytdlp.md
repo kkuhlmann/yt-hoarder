@@ -9,8 +9,11 @@ Root `AGENTS.md` carries the Deno requirement and the "defaults live in `models.
 download that is failing right now — empty files, 403s, `Signature solving failed`, a video stuck as
 not-yet-released — use the `yt-dlp-diagnostics` skill, which goes deeper than this file.
 
+**Bumping yt-dlp is a review, not a lock refresh — use the `upgrading-yt-dlp` skill.** The app
+passes `player_client` explicitly, so upstream's default-client changes never arrive on their own.
+
 Browser impersonation and player-client settings avoid YouTube blocking:
-- Random impersonation via `curl-cffi` (`ytdlp/options.py`); player-client fallback order set in the Settings UI (default `['visionos', 'tv_simply', 'web_safari', 'web', 'web_embedded']`)
+- Random impersonation via `curl-cffi` (`ytdlp/options.py`); player-client fallback order set in the Settings UI (default `['tv_samsung', 'visionos', 'tv_simply', 'web_safari', 'web', 'web_embedded']`)
 - **Challenge solving**: yt-dlp ≥2025.11.12 needs an external JS runtime for YouTube `sig`/`n` challenges — **Deno ≥2.3.0** (auto-discovered from PATH) plus the `yt-dlp-ejs` dep. Deno is pinned via the `DENO_VERSION` ARG in `Dockerfile.prod`; too-old Deno → `Signature solving failed` → `Requested format is not available`
 - Defaults live in `models.py` (`DEFAULT_PLAYER_CLIENTS` / `DEFAULT_COOKIES_PLAYER_CLIENTS`) and **only affect a fresh `app_settings` row** — existing installs keep stored values, so change them via the Settings UI, or ship a data migration as `realign_player_clients` does. Watch for clients yt-dlp removes upstream (e.g. `tv_embedded`) *and* for ones it keeps but demotes: `android_vr` still exists, but YouTube 403s every format it returns as of 2026-08-17, so a stored list still leading with it silently caps downloads at whatever the next client offers
 - Downloads failing with empty files usually means yt-dlp needs updating or the player clients need adjusting

@@ -36,7 +36,7 @@ const COOKIES_MODE_OPTIONS = [
 
 const COOKIES_PLAYER_CLIENT_OPTIONS: OptionMeta[] = [
   { value: "web_embedded", label: "web_embedded", description: "Best for cookies, yt-dlp default" },
-  { value: "tv_downgraded", label: "tv_downgraded", description: "No PO token needed, supports age-gate" },
+  { value: "tv_samsung", label: "tv_samsung", description: "No PO token needed, supports age-gate" },
   { value: "web", label: "web", description: "Browser cookies, supports age-gate" },
   { value: "web_safari", label: "web_safari", description: "Safari variant, supports age-gate" },
   { value: "mweb", label: "mweb", description: "Mobile web, supports age-gate" },
@@ -45,6 +45,7 @@ const COOKIES_PLAYER_CLIENT_OPTIONS: OptionMeta[] = [
   { value: "web_music", label: "web_music", description: "YouTube Music" },
   { value: "visionos", label: "visionos", description: "No cookie support" },
   { value: "android_vr", label: "android_vr", description: "No cookie support; YouTube 403s its formats" },
+  { value: "tv_downgraded", label: "tv_downgraded", description: "Broken in some sessions (page needs to be reloaded)" },
 ]
 
 const COOKIES_PLAYER_CLIENT_MAP = new Map(COOKIES_PLAYER_CLIENT_OPTIONS.map((opt) => [opt.value, opt]))
