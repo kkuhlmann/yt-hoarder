@@ -18,6 +18,18 @@
 
 </div>
 
+## Contents
+
+<div align="center">
+
+**[Features](#features)** · **[On mobile](#on-mobile)** · **[Research with AI](#research-with-an-ai-agent)** · **[Installation](#installation)** · **[Usage](#usage)** · **[Configuration](#configuration)** · **[Troubleshooting](#troubleshooting)** · **[Development](#development)** · **[Support](#support)** · **[License](#license)**
+
+[Download options](#download-options) · [Subscription options](#subscription-options) · [Searching](#searching) · [Transcripts](#transcripts) · [Offline mode](#offline-mode)
+
+</div>
+
+## Overview
+
 Subscribe to channels and playlists, and YT-Hoarder downloads new uploads on a schedule. Then:
 
 - **Watch and listen** in the built-in player, on desktop or phone, even offline.
@@ -31,26 +43,6 @@ Everything runs on your own hardware under Docker, with no external accounts and
 <div align="center">
 
 <img src="docs/images/hero.gif" alt="A tour of YT-Hoarder: searching transcripts, playing and clipping media, subscriptions, playlists, and themes" width="100%" />
-
-</div>
-
-**Try it** with Docker installed:
-
-```bash
-wget https://raw.githubusercontent.com/kkuhlmann/yt-hoarder/main/setup.sh
-bash setup.sh -y
-```
-
-Then open <http://localhost:8000> and register; the first account is the admin. See
-[Installation](#installation) for the options.
-
-## Contents
-
-<div align="center">
-
-**[Features](#features)** · **[On mobile](#on-mobile)** · **[Research with AI](#research-with-an-ai-agent)** · **[Installation](#installation)** · **[Usage](#usage)** · **[Configuration](#configuration)** · **[Troubleshooting](#troubleshooting)** · **[Development](#development)** · **[Support](#support)** · **[License](#license)**
-
-[Download options](#download-options) · [Subscription options](#subscription-options) · [Searching](#searching) · [Transcripts](#transcripts) · [Offline mode](#offline-mode)
 
 </div>
 
