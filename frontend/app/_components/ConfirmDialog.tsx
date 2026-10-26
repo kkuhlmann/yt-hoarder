@@ -10,6 +10,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import { LoadingSpinner } from "./LoadingSpinner"
 
 type ConfirmDialogProps = {
@@ -119,11 +120,13 @@ type DetailRow = {
 
 export function ConfirmDetailGrid({ rows }: { rows: DetailRow[] }) {
   return (
-    <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm">
+    <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
       {rows.map(({ label, value, valueClassName }) => (
         <Fragment key={label}>
           <span className="text-text-muted font-mono">{label}</span>
-          <span className={valueClassName ?? "text-text-primary"}>{value}</span>
+          <span className={cn("min-w-0 wrap-anywhere", valueClassName ?? "text-text-primary")}>
+            {value}
+          </span>
         </Fragment>
       ))}
     </div>
