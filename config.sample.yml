@@ -76,7 +76,7 @@ auth:
   # self-hosts keep working; turn it on if you terminate TLS in front of the app.
   # Note this stops sign-in from working over plain http:// entirely, LAN included.
   # It governs the cookie only -- offline mode needs HTTPS and a production install,
-  # not this flag. See docs/CONFIGURATION.md.
+  # not this flag. See docs/OFFLINE.md.
   cookie_secure: false
 
   # Origins allowed to make credentialed cross-origin API calls.
@@ -101,8 +101,9 @@ logging:
 # account menu; a token sees exactly what its user sees. The app never calls an AI
 # service itself. See docs/CONFIGURATION.md.
 mcp:
-  # Off by default: while disabled /api/mcp answers 404 and no token can be created.
-  enabled: false
+  # Nothing can connect until a user creates a token. Set false to make /api/mcp
+  # answer 404 and hide the token menu. A config.yml with no mcp section is off.
+  enabled: true
 
   # The address you open yt-hoarder at, used for the in-app links (?media=&t=)
   # in search results. Empty uses the address each agent connected with, which is

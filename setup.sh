@@ -73,8 +73,8 @@ Options:
                               plain http:// entirely, LAN included. (default: off)
   --mcp                       Enable the MCP server, so AI agents you run yourself (Claude
                               Code, LM Studio, Cursor...) can search your transcripts with a
-                              personal access token (default: off)
-  --no-mcp                    Leave the MCP server off
+                              personal access token (default: on)
+  --no-mcp                    Turn the MCP server off
   --public-url <url>          The address you open the app at (e.g. https://hoarder.example.com),
                               used for the in-app links in MCP search results. Empty, the
                               default, uses whatever address each agent connects with.
@@ -101,7 +101,7 @@ Examples:
   ./setup.sh --launch published --image-tag v0.1.0
   ./setup.sh -y --install-dir ~/media/yt-hoarder
   ./setup.sh --audio-path /mnt/audio --video-path /mnt/video --whisper-model small.en
-  ./setup.sh -y --mcp --public-url https://hoarder.example.com
+  ./setup.sh -y --public-url https://hoarder.example.com
 EOF
 }
 
@@ -709,20 +709,21 @@ configure_mcp() {
     echo "  yt-hoarder can serve an MCP endpoint, so AI agents you run yourself --"
     echo "  Claude Code, LM Studio, Cursor and others -- can search your transcripts and"
     echo "  summarise them with links to the exact moment. Each user connects their own"
-    echo "  agent with a personal access token. The app itself never calls an AI service."
+    echo "  agent with a personal access token. The app itself never calls an AI service,"
+    echo "  and nothing can connect until a user creates a token."
     echo ""
 
-    MCP_ENABLED="false"
+    MCP_ENABLED="true"
     MCP_PUBLIC_URL=""
     if [[ "$ARG_MCP" == "y" ]]; then
-        MCP_ENABLED="true"
         print_success "  MCP server: enabled (from --mcp)"
     elif [[ "$ARG_MCP" == "n" ]]; then
+        MCP_ENABLED="false"
         print_success "  MCP server: off (from --no-mcp)"
     elif [[ -n "$NON_INTERACTIVE" ]]; then
-        print_success "  MCP server: off (default)"
-    elif prompt_yes_no "Enable the MCP server so AI agents can search your transcripts?" "n"; then
-        MCP_ENABLED="true"
+        print_success "  MCP server: enabled (default)"
+    elif ! prompt_yes_no "Enable the MCP server so AI agents can search your transcripts?" "y"; then
+        MCP_ENABLED="false"
     fi
 
     [[ "$MCP_ENABLED" == "true" ]] || return 0
@@ -899,7 +900,7 @@ auth:
   # Set true if you terminate HTTPS in front of the app. This stops sign-in from
   # working over plain http:// entirely, LAN included. It governs the cookie only:
   # offline mode on phones needs an HTTPS origin and a production install, not
-  # this flag. See docs/CONFIGURATION.md.
+  # this flag. See docs/OFFLINE.md.
   cookie_secure: ${COOKIE_SECURE}
 
 logging:
@@ -1216,7 +1217,7 @@ print_offline_mode_hint() {
         echo "  Caddy, nginx, Traefik, Cloudflare Tunnel, or 'tailscale serve --bg 8000' --"
         echo "  then re-run with --cookie-secure, or set auth.cookie_secure in config.yml."
     fi
-    echo -e "  ${DIM}${DOCS_BASE}/CONFIGURATION.md${RESET}"
+    echo -e "  ${DIM}${DOCS_BASE}/OFFLINE.md${RESET}"
     echo ""
 }
 
