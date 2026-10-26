@@ -39,14 +39,14 @@ export function TaskErrorDetails({ url, message, label = "Error" }: TaskErrorDet
   return (
     <div className="space-y-3 text-sm">
       {url && (
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-start gap-2 min-w-0">
           <span className="text-text-muted font-mono shrink-0">URL:</span>
           <a
             href={url}
             target="_blank"
             rel="noopener noreferrer"
             title={url}
-            className="text-matrix hover:underline truncate min-w-0 flex-1"
+            className="text-matrix hover:underline wrap-anywhere min-w-0 flex-1"
           >
             {url}
           </a>

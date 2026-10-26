@@ -545,7 +545,7 @@ export function TasksTable({
                 {
                   label: "Title:",
                   value: focusTask.title || "N/A",
-                  valueClassName: "text-text-primary truncate",
+                  valueClassName: "text-text-primary",
                 },
                 { label: "Channel:", value: focusTask.channel || "N/A" },
                 { label: "Status:", value: focusTask.status },
@@ -597,7 +597,7 @@ export function TasksTable({
                 {
                   label: "Title:",
                   value: focusTask.title || "N/A",
-                  valueClassName: "text-text-primary truncate",
+                  valueClassName: "text-text-primary",
                 },
                 { label: "Channel:", value: focusTask.channel || "N/A" },
                 {
