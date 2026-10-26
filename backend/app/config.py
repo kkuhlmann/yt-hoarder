@@ -182,8 +182,9 @@ class McpSettings(BaseSettings):
         default=False,
         description=(
             'Serve the MCP endpoint that lets AI agents search transcripts with a '
-            'personal access token. Off by default: while disabled the endpoint 404s '
-            'and no token can be created.'
+            'personal access token. While disabled the endpoint 404s and no token can '
+            'be created. setup.sh and config.sample.yml turn it on; this default stays '
+            'off so updating an install whose config.yml predates MCP never starts it.'
         ),
     )
     public_url: str = Field(

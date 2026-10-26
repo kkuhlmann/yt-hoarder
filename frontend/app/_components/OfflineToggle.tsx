@@ -19,7 +19,7 @@ export function OfflineToggle({ className }: { className?: string }) {
   const { offlineMode, setOfflineMode } = useOffline()
 
   // Nothing plays back offline without a service worker, so on an insecure origin
-  // the switch would only ever produce an empty library. See docs/CONFIGURATION.md.
+  // the switch would only ever produce an empty library. See docs/OFFLINE.md.
   if (!supported) return null
 
   const Icon = offlineMode ? SignalSlashIcon : SignalIcon

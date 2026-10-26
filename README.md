@@ -6,10 +6,11 @@
 
 # YT-Hoarder
 
-**Self-hosted YouTube download manager with automatic subscriptions, local AI transcription, and search across the spoken content of your library.**
+**Self-hosted YouTube download manager with automatic subscriptions, local AI transcription, and search across the spoken content of your library — by you, or by an AI agent you connect.**
 
 ![Self-hosted](https://img.shields.io/badge/self--hosted-000000?style=flat-square)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
+[![MCP](https://img.shields.io/badge/MCP-000000?style=flat-square&logo=modelcontextprotocol&logoColor=white)](#research-with-an-ai-agent)
 ![Python 3.14](https://img.shields.io/badge/Python-3.14-3776AB?style=flat-square&logo=python&logoColor=white)
 ![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs&logoColor=white)
 ![PostgreSQL + pgvector](https://img.shields.io/badge/PostgreSQL-pgvector-4169E1?style=flat-square&logo=postgresql&logoColor=white)
@@ -17,12 +18,15 @@
 
 </div>
 
-Subscribe to channels and playlists and YT-Hoarder keeps the library current on a schedule.
-Downloads can be transcribed on-device with Whisper, which enables semantic search across the
-collection, navigation to any spoken moment, clip extraction, playlist curation, and sharing with
-other users on the instance. A channel can also be indexed *transcript-only*: searchable by what
-is said in it, without keeping any of its media. It runs entirely on your own hardware under Docker, with no external
-accounts and no cloud dependency.
+Subscribe to channels and playlists, and YT-Hoarder downloads new uploads on a schedule. Then:
+
+- **Watch and listen** in the built-in player, on desktop or phone, even offline.
+- **Search what was said**, using transcripts made on your own machine, and jump to that moment.
+- **Clip, collect and share** with clips, playlists, and other users on your instance.
+- **Research with AI**: connect your own AI agent to dig through everything your library says, with
+  answers cited to the second.
+
+Everything runs on your own hardware under Docker, with no external accounts and no cloud dependency.
 
 <div align="center">
 
@@ -30,29 +34,58 @@ accounts and no cloud dependency.
 
 </div>
 
+**Try it** with Docker installed:
+
+```bash
+wget https://raw.githubusercontent.com/kkuhlmann/yt-hoarder/main/setup.sh
+bash setup.sh -y
+```
+
+Then open <http://localhost:8000> and register; the first account is the admin. See
+[Installation](#installation) for the options.
+
+## Contents
+
+<div align="center">
+
+**[Features](#features)** · **[On mobile](#on-mobile)** · **[Research with AI](#research-with-an-ai-agent)** · **[Installation](#installation)** · **[Usage](#usage)** · **[Configuration](#configuration)** · **[Troubleshooting](#troubleshooting)** · **[Development](#development)** · **[Support](#support)** · **[License](#license)**
+
+[Download options](#download-options) · [Subscription options](#subscription-options) · [Searching](#searching) · [Transcripts](#transcripts) · [Offline mode](#offline-mode)
+
+</div>
+
 ## Features
 
-| Feature | Description |
+| Watch | |
 |---|---|
-| **Automatic subscriptions** | Subscribe to channels and playlists; new uploads download on a schedule, filtered by title keyword, upload date, or duration, as audio-only or full video. |
-| **Transcript search** | Items are transcribed from their YouTube captions, or locally with faster-whisper, embedded with onnxruntime, and stored in pgvector. Searches return the exact spoken passages and link to their timestamps, narrowed to whatever the library is currently filtered to — the search box, the open group folder, tag chips and minimum rating. While watching, the transcript can sit beside the player, following along and searchable on its own; scroll away to read, and **Follow** returns to the passage playing. |
-| **Transcript-only indexing** | Download or subscribe to a video, playlist or channel as **Transcript Only**: only its transcript is kept, so it is searchable (in the app and over MCP) without taking up the library. See [Transcripts](#transcripts). |
-| **Mobile-optimized interface** | The web UI is built for phones and tablets as well as desktop: card layouts in place of tables, touch drag-and-drop, mobile chart forms, and native video fullscreen and picture-in-picture on iOS. |
-| **Waveform clipping** | Scrub an interactive waveform, drag region handles to frame-accurate start and end points, zoom for precision, and export a clip. Transcript-only items are clipped straight from YouTube, as audio or video. |
-| **Real-time progress** | Downloads and transcriptions stream progress over Server-Sent Events, reporting phase (video vs. audio), and percent complete.
-| **Library organization** | Switch between table and grid views, group media into folders by channel, tag, or date, and rate and tag items. Hovering the progress bar shows sprite-based thumbnail previews. |
-| **Playlists** | Build custom playlists with drag-and-drop ordering and play through them with next-up, shuffle, and autoplay controls. |
-| **Statistics** | Storage breakdown, download trends over time, transcription coverage, the database space transcripts take broken down by channel, and filterable engagement metrics. |
-| **Multi-user and sharing** | Accounts with admin approval, per-user storage limits, and sharing of media, subscriptions, playlists, and clips. Media already downloaded by one user is granted to the next rather than downloaded twice. |
-| **AI research (MCP)** | Optional MCP endpoint that lets an AI agent you run yourself — Claude Code, LM Studio, Cursor or any other MCP client — search your transcripts and answer with citations, upload dates and links to the exact moment, both on YouTube and in the app's own player. Each user connects with a personal access token that sees only their library. Off by default; see [Configuration](#configuration). |
-| **Boolean search** | The Downloads search box matches channel and title and supports `&&` (AND) and `\|\|` (OR); `&&` binds tighter. Single `&` and `\|` are matched literally. The operators narrow transcript search results too. |
-| **Offline mode** | Save audio and video to a phone and play it with no connection — the app itself keeps working offline, installed to the home screen. Downloads can be pinned per item or kept in sync with a playlist or subscription, inside a storage budget; playlists with downloaded items play offline too. Playback-only while switched on. Needs HTTPS and a production install; see [On mobile](#on-mobile). |
-| **70+ themes** | Built-in themes from retro terminal to modern light and dark palettes, switchable instantly. |
-| **Audio visualizer** | Optional reactive visualizer behind the player bar for audio-only tracks, following the active theme's colors. Desktop only, to protect lock-screen playback on iOS. |
+| **Built-in player** | Video and audio resume where you left off, keep playing in a bar along the bottom while you browse, and preview thumbnails as you scrub. |
+| **Mobile** | Built for phones as well as desktop, with touch drag-and-drop and native fullscreen and picture-in-picture on iOS. |
+| **Offline mode** | Save audio and video to your phone and play it with no connection ([needs HTTPS](#offline-mode)). |
+| **Clipping** | Cut frame-accurate clips on an interactive waveform, or straight from YouTube for items you never downloaded. |
+| **70+ themes** | From retro terminal to modern light and dark, with an optional audio visualizer on desktop that follows them. |
+
+| Search and research | |
+|---|---|
+| **Transcript search** | Search by what was said and jump to that moment, using YouTube's captions or Whisper run on your own machine. |
+| **Transcript-only indexing** | Make a video, playlist or channel searchable without keeping its media ([Transcripts](#transcripts)). |
+| **AI research (MCP)** | Your own AI agent answers questions about your library with every claim cited to the second ([Research with an AI agent](#research-with-an-ai-agent)). |
+
+| Organize | |
+|---|---|
+| **Library** | Table or grid view, folders by channel, tag or date, your own ratings and tags, and a search box that combines terms with `&&` and `\|\|` ([Searching](#searching)). |
+| **Playlists** | Drag-and-drop ordering, played through with next-up, shuffle and autoplay. |
+| **Statistics** | Storage, download trends, transcription coverage and engagement metrics at a glance. |
+
+| Run it | |
+|---|---|
+| **Automatic subscriptions** | Channels and playlists download new uploads on a schedule, as audio or video, filtered by title, upload date or duration. |
+| **Multi-user and sharing** | Admin-approved accounts with storage limits share media, subscriptions, playlists and clips, and a video one user already has is never downloaded twice. |
+| **Live progress** | Every download and transcription reports its progress as it runs. |
 
 ## On mobile
 
 The same interface on a phone — the list and grid layouts, with the player docked at the bottom.
+Media can also be saved to the phone and played with no connection; see [Offline mode](#offline-mode).
 
 <div align="center">
 
@@ -60,66 +93,40 @@ The same interface on a phone — the list and grid layouts, with the player doc
 
 </div>
 
-### Offline mode
+## Research with an AI agent
 
-Media can be downloaded onto the phone and played with no connection at all — including the app
-itself, which normally could not load without reaching the server.
+A transcribed library is a searchable record of everything its channels have said. Turn on the
+optional MCP endpoint and an AI agent you run yourself — Claude
+Code, LM Studio, Cursor, or any other MCP client — can research it for you:
 
-**Two things are required, and the offline controls stay hidden until both are true.** They hide
-themselves deliberately: downloading media that could never play back would fail at the only moment
-that matters.
+> *What has this podcast said about interest rates since 2024, and has its view changed?*
+>
+> *Find the episode where they interviewed the author of this book, and quote what they said about it.*
+>
+> *Compare how these three channels covered the launch.*
 
-**1. HTTPS, from any trusted certificate.** The browser feature that makes a site work offline (a
-service worker) is refused on a plain `http://` address, so an install reached at
-`http://192.168.1.50:8000` cannot do any of this. Anything that puts a genuinely trusted certificate
-in front of port 8000 works — Caddy (automatic Let's Encrypt), nginx with certbot, Traefik,
-Cloudflare Tunnel, or Tailscale, which is a single command if you already use it:
+The agent resolves the channels and dates you mention against the library, runs several searches by
+meaning and by exact name, and reads around each passage before quoting it. The answer is a summary —
+chronological when the question spans time — followed by an evidence table of upload date, channel,
+video, quote and timestamp. Every timestamp links to the exact second, both on YouTube and in
+YT-Hoarder's own player, which keeps working for audio downloads and for videos since taken down.
+Every claim carries its citation, so checking the answer takes a click.
 
-```bash
-tailscale serve --bg 8000
-```
+- **Index more than you keep.** Subscribe to channels as [Transcript Only](#transcripts) and their
+  whole back catalogue becomes researchable without storing any of the media.
+- **Nothing leaves the server on its own.** YT-Hoarder never calls an AI service; transcripts go only
+  to the agent you connect. With a local model in LM Studio, the whole loop stays on your hardware.
+- **Each user researches only their own library.** A personal access token sees exactly what its
+  user sees in the app, the tools are read-only, and a password change revokes every token.
+- **A ready-made research prompt** asks for the summary-plus-evidence answer; Claude Code lists it as
+  `/yt-hoarder:research`.
 
-A self-signed certificate works **only** if you install its CA into the device's trust store.
-Clicking through the browser's "not private" warning does not count — the origin stays untrusted,
-the service worker still refuses to register, and the offline controls stay hidden with no visible
-reason why.
-
-**2. A production install** — `task prod` or `task published`. Development mode (`task dev`) shows
-no offline controls at all. That is by design rather than an oversight: a service worker sitting in
-front of the dev server caches its output and breaks hot reload, and dev serves the UI and the API
-on two different origins besides.
-
-Recommended once you are on HTTPS, though not required for offline mode: set
-`auth.cookie_secure: true` in `config.yml` and restart (or pass `--cookie-secure` to `setup.sh` at
-install time), so the auth cookie is never sent in the clear. Be aware this stops sign-in from
-working over plain `http://` on the LAN — use the HTTPS address from then on
-(`http://localhost:8000` on the server itself keeps working).
-
-With both requirements met:
-
-1. Open the app and use your browser's **Add to Home Screen**. This matters on iOS: a plain Safari
-   tab has its storage cleared after about a week of not being opened, while an installed web app
-   keeps it and is allowed far more space.
-2. Save something with the **download arrow** on any item, or the **refresh icon** on a playlist or
-   subscription to keep its newest items downloaded automatically.
-3. The **database icon** in the top-left opens storage management — how much is stored, the budget,
-   and what to remove. Items you saved by hand are kept; playlist and subscription downloads are
-   removed least-recently-played-first to stay inside the budget.
-4. Tap the **signal icon** to switch on offline mode. The library then shows only what is on the
-   device, and playback positions are saved locally and sent to the server the next time you switch
-   back.
-
-**Offline mode is for playing what you have downloaded, and nothing else.** The Downloads tab shows
-the saved items with search, tag and rating filters and sorting; the Playlists tab shows every
-playlist that contains at least one downloaded item, with just those items, in playlist order, ready
-to play or shuffle. Everything that needs the server waits until you switch back: new downloads,
-clips, subscriptions, tasks, stats, settings, sharing, editing tags or ratings, adding to or
-reordering playlists, deleting — those buttons and tabs are simply absent rather than failing. The
-playlist list is captured whenever the app is online and again at the moment you switch offline, so
-a playlist you just filled is there when you go.
-
-Offline mode is a manual switch, never automatic — a phone reports itself online while attached to a
-hotel captive portal, so guessing would swap the library out at the worst moment.
+**Getting started:** a new install has it on already (an older one needs `mcp.enabled: true` in
+`config.yml` and a restart). Create a token from the account menu → **MCP Access Tokens**; the
+dialog shows the exact
+`claude mcp add` command, or the `mcp.json` snippet for LM Studio and Cursor, with your server's
+address and token filled in. Full details in
+[`docs/CONFIGURATION.md`](docs/CONFIGURATION.md#ai-agents-mcp).
 
 ## Installation
 
@@ -150,6 +157,8 @@ smaller `transcription.whisper_model` there.
    ```bash
    bash setup.sh -y
    ```
+
+   [AI agent access](#research-with-an-ai-agent) is on by default; add `--no-mcp` to leave it off.
 
 2. **Open the UI and create an account:**
    - Published or prod mode: <http://localhost:8000> · Dev mode: <http://localhost:3000>
@@ -194,6 +203,8 @@ To configure the Compose files by hand instead of running `setup.sh`, see
    items show their transcript beside the player, to follow along, search, and jump to any line.
 5. **Clip, collect, and share:** extract a clip on the waveform, add media to a playlist, and share
    any of it with other users on the instance.
+6. **Research it (optional):** turn on MCP and ask an AI agent what your channels have said — see
+   [Research with an AI agent](#research-with-an-ai-agent).
 
 | Tab | Purpose |
 |-----|---------|
@@ -243,54 +254,53 @@ row (**Check for new videos now**). It works on a subscription that is switched 
 subscription can serve as a manual-only one, and the videos it finds are queued ahead of scheduled
 subscription downloads. Only the subscription's owner, or an admin, sees the button.
 
+### Searching
+
+The Downloads tab has two search boxes.
+
+- **Search downloads** matches channel and title. Combine terms with `&&` (both) and `||` (either):
+  `lofi && mix` needs both words, `cats || dogs` either one. `&&` binds tighter, so `a && b || c`
+  reads as `(a && b) || c`. A single `&` or `|` is matched as text, so `Q&A` finds "Q&A".
+- **Transcript search** finds passages by what was said, each linked to its moment. A slider sets the
+  balance between exact words (**Keyword**) and meaning (**Semantic**). Results are narrowed by the
+  downloads search, the open folder, the tag chips and the minimum rating.
+
 ### Transcripts
 
-**Transcript-only items** are indexed for search but never kept as media. They don't appear in the
-Library or in playlists, only in transcript search, MCP, and the **Transcripts** view. Each one
-uses YouTube's English captions when it has them; a video without captions is downloaded as the
-smallest English audio stream (never one of YouTube's auto-dubbed tracks while an English one
-exists), transcribed with Whisper, and the audio deleted. Whisper is CPU-heavy and
-runs one job at a time, so a large caption-less backlog takes a while; caption fetches are paced by
-the same **Download Sleep** setting as downloads, since both talk to YouTube.
+- **Watch with the transcript.** The **Transcript** button on any media page shows it beside the
+  player (below it on a phone). The playing line is highlighted, clicking a line jumps there, and the
+  search box filters to matching lines. Media without one offers **Generate transcript**.
+- **The Transcripts view**, picked at the top of the Downloads tab, lists everything you can search:
+  transcript-only items, library media with a transcript, and deleted media whose transcript you
+  kept. It has the Library's grid, folders and bulk actions.
+- **Transcript-only items** keep just the transcript and a thumbnail. The text comes from YouTube's
+  English captions, or from Whisper run on a temporary audio download when there are none. They play
+  through YouTube's privacy-enhanced embed (`youtube-nocookie.com`) and remember your position, but
+  don't appear in the Library or playlists.
+- **Clip without a file.** **Create Clip** under the embedded player saves a section as MP4 or MP3;
+  the server fetches just that part from YouTube.
 
-**The Transcripts view** (the scope picker at the top of the Downloads tab) lists everything you can
-search: transcript-only items, library media with a transcript (*In library*), and deleted media
-whose transcript you kept (*Deleted*). Like the Library it has a **Grid** view, and it groups into
-folders by channel, tag or date; an open folder narrows transcript search to it. With **Resume** on,
-opening a row picks up where you left off. Its table view has the Library's checkboxes and bulk bar
-(Delete, Tags, Share; playlists stay in the Library). A bulk delete treats each row the way its own
-trash button does, so a selected *Deleted* row loses its kept transcript.
+Good to know:
 
-Transcript-only items keep a small thumbnail (YouTube's 480px image, about 20 KB) so the grid has
-pictures. A thumbnail lasts as long as the media file or the transcript does: deleting library media
-but keeping its transcript keeps its picture, and deleting that transcript later removes it.
+- Downloading a video in full replaces its transcript-only entry, so search never shows a passage
+  twice.
+- Deleting a transcript-only item deletes its transcript. Deleting library media offers to keep the
+  transcript, which then shows as *Deleted* in the Transcripts view.
+- Captions and Whisper are English-only. Whisper is CPU-heavy and runs one job at a time, so a large
+  backlog of videos without captions takes a while.
 
-**Watching with the transcript.** Every media page has a **Transcript** button that shows the
-transcript beside the player (below it on a phone): the playing line is highlighted, a click jumps
-there, and its search box narrows it to the lines containing every word you type. Media without a
-transcript shows **Generate transcript** instead, for its owner or an admin. Audio keeps playing in
-the bottom bar; its transcript button (the page icon) opens the same page with the transcript
-showing, following the bar.
+### Offline mode
 
-Items with no file to play — transcript-only, or deleted with the transcript kept — play through
-YouTube's privacy-enhanced (`youtube-nocookie.com`) embed, which sets no cookies until you press play
-and keeps these views out of your YouTube recommendations. Your position is still saved, so they
-resume like everything else.
+Audio and video can be saved to a phone and played with no connection, including the app itself
+once it is installed to the home screen. Use the **download arrow** on an item, or the **refresh
+icon** on a playlist or subscription to keep its newest items saved, then switch to offline mode
+(the **signal icon** in the top bar, or **Offline mode** in the menu on a phone). While it is on,
+the app only plays what is on the device.
 
-**Clipping without a file.** A YouTube item played through the embed can still be clipped: press
-**Create Clip** under the player, set the start and end with the trim bar (zoom in for finer
-control) or from the current position, and choose **Video (MP4)** or **Audio (MP3)** when saving. The server fetches just that section from YouTube, on the same queue as
-downloads, and the clip lands in the Clips tab like any other. **Jump to source** on such a clip opens
-YouTube at the clip's start.
-
-A few rules follow from all this:
-
-- **Downloading a video in full replaces its transcript-only entry** once the full copy has a
-  transcript, so search never shows the same passage twice. Asking for transcript-only on something
-  whose transcript you already have is refused.
-- **Deleting a transcript-only item deletes its transcript.** Deleting library media still offers
-  to keep its transcript, which then shows in the Transcripts view as *Deleted*, visible to you only.
-- **Captions and Whisper are English-only**, as for the **Transcript** option.
+The offline controls stay hidden until two things are true: the app is reached over **HTTPS** with a
+trusted certificate (`tailscale serve --bg 8000` is the one-command option), and it is a
+**production install** (`task prod` or `task published`, not dev mode). Setup, storage limits and
+what works offline are in [`docs/OFFLINE.md`](docs/OFFLINE.md).
 
 ## Configuration
 
@@ -302,8 +312,8 @@ A few rules follow from all this:
   (`transcription.whisper_model`)
 - **Release version** — `.env`: `YT_HOARDER_TAG`, `latest` by default; pin it to hold a version
   through updates
-- **AI agent access (MCP)** — off by default (`mcp.enabled`); `setup.sh --mcp` turns it on. Each user
-  then creates a token from the account menu → **MCP Access Tokens**, which shows the exact command to
+- **AI agent access (MCP)** — on in a new install (`mcp.enabled`); `setup.sh --no-mcp` leaves it off.
+  Each user creates a token from the account menu → **MCP Access Tokens**, which shows the exact command to
   connect Claude Code or the `mcp.json` snippet for LM Studio and Cursor
 
 `config.yml` is the single source of application settings and is documented in full in

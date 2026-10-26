@@ -14,7 +14,7 @@
 config.yml*
 *.bak
 # Nothing here generates TLS material, but offline mode requires HTTPS in front
-# of :8000 and docs/CONFIGURATION.md walks through self-signed certs — which get
+# of :8000 and docs/OFFLINE.md walks through self-signed certs — which get
 # generated wherever the reader happens to be standing.
 *.pem
 *.key

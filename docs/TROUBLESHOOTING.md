@@ -88,7 +88,8 @@ it from elsewhere, tunnel over SSH rather than republishing the port.
 ## Offline mode
 
 **I don't see the offline controls.** They hide themselves until offline support can actually work,
-so the download arrow, the signal icon and the database icon are all absent. Check, in this order:
+so the download arrow, the signal icon and the **Offline Storage** menu entry are all absent. Check,
+in this order:
 
 1. **Are you on an `https://` address?** A LAN IP or a bare Tailscale IP over plain `http://` is not
    a secure context and cannot register a service worker. Put any trusted certificate in front of
@@ -96,7 +97,7 @@ so the download arrow, the signal icon and the database icon are all absent. Che
    self-signed certificate only counts if its CA is installed in the device's trust store; clicking
    through the browser warning does not.
 2. **Are you running a production install?** `task dev` never shows offline controls — see
-   [CONFIGURATION.md](CONFIGURATION.md#what-offline-mode-requires). Use `task prod` or
+   [OFFLINE.md](OFFLINE.md#2-a-production-install). Use `task prod` or
    `task published`.
 3. **Is your image new enough to include the feature?** An install pinned to an older
    `YT_HOARDER_TAG` will not have it.
