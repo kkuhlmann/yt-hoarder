@@ -6,7 +6,7 @@ import yt_dlp.version
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 
-from dependencies import get_required_user_id
+from dependencies import get_cookie_or_extension_user_id
 from logger import logger
 from models import DownloadJob, JobType, MediaDetails, MediaType, TaskRecord, TaskStatus, TaskType
 from orchestrator import DIRECT_DOWNLOAD_PIPELINE_JOB, JobSpec, orch
@@ -115,7 +115,9 @@ async def _enforce_storage_quota(user_id: int, media_type: MediaType | None) -> 
 
 
 @router.post('/', status_code=status.HTTP_201_CREATED)
-async def download_media(dl_job: DownloadRequest, user_id: int = Depends(get_required_user_id)):
+async def download_media(
+    dl_job: DownloadRequest, user_id: int = Depends(get_cookie_or_extension_user_id)
+):
     await _enforce_storage_quota(user_id, dl_job.media_type)
 
     dl_job_dto = DownloadJobDTO.from_orm(dl_job.model_dump())

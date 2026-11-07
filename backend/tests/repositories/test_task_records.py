@@ -1,8 +1,11 @@
+from datetime import timedelta
+
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from models import MediaType, TaskRecord, TaskStatus, TaskType, utc_now
+from models import MediaType, TaskRecord, TaskStatus, TaskType, User, utc_now
 from repositories import task_records
+from repositories import users as user_repo
 from repositories.errors import InvalidStateError, NotFoundError
 
 # --- CRUD Operations ---
@@ -853,3 +856,177 @@ async def test_find_one_ignores_soft_deleted_rows(test_database):
         )
         is None
     )
+
+
+# --- Progress feed ---
+
+FEED_WINDOW = timedelta(hours=1)
+
+
+async def _feed_user(username: str) -> int:
+    user = await user_repo.create_user(User(username=username, password_hash='x', is_approved=True))
+    return user.id
+
+
+async def _feed_task(
+    task_id: str,
+    user_id: int,
+    status: TaskStatus,
+    *,
+    task_type: TaskType = TaskType.DOWNLOAD,
+    age: timedelta = timedelta(0),
+    **fields,
+) -> None:
+    await task_records.insert_task(
+        TaskRecord(
+            task_id=task_id,
+            task_type=task_type,
+            status=status,
+            user_id=user_id,
+            updated_at=utc_now() - age,
+            **fields,
+        )
+    )
+
+
+async def _feed(user_id: int, limit: int = 25, finished_slots: int = 10):
+    return await task_records.get_progress_feed(
+        user_id, finished_within=FEED_WINDOW, limit=limit, finished_slots=finished_slots
+    )
+
+
+async def _feed_ids(user_id: int, limit: int = 25, finished_slots: int = 10) -> list[str]:
+    rows, _ = await _feed(user_id, limit, finished_slots)
+    return [row.task_id for row in rows]
+
+
+async def test_progress_feed_holds_active_and_recently_finished_tasks(clean_database):
+    uid = await _feed_user('feed-owner')
+    for status in (
+        TaskStatus.RESOLVING,
+        TaskStatus.QUEUED,
+        TaskStatus.IN_PROGRESS,
+        TaskStatus.POSTPROCESSING,
+        TaskStatus.RETRY,
+        TaskStatus.NOT_READY,
+        TaskStatus.COMPLETE,
+        TaskStatus.FAILED,
+    ):
+        await _feed_task(f'in-{status.value}', uid, status)
+
+    assert set(await _feed_ids(uid)) == {
+        'in-RESOLVING',
+        'in-QUEUED',
+        'in-IN_PROGRESS',
+        'in-POSTPROCESSING',
+        'in-RETRY',
+        'in-NOT_READY',
+        'in-COMPLETE',
+        'in-FAILED',
+    }
+
+
+async def test_progress_feed_leaves_out_what_the_user_did_not_ask_to_see(clean_database):
+    uid = await _feed_user('feed-owner')
+    other = await _feed_user('feed-other')
+    await _feed_task('kept', uid, TaskStatus.IN_PROGRESS)
+    await _feed_task('someone-elses', other, TaskStatus.IN_PROGRESS)
+    await _feed_task('old-complete', uid, TaskStatus.COMPLETE, age=timedelta(hours=2))
+    await _feed_task('old-failed', uid, TaskStatus.FAILED, age=timedelta(hours=2))
+    await _feed_task('skipped', uid, TaskStatus.SKIPPED)
+    await _feed_task('cancelled', uid, TaskStatus.CANCELLED)
+    await _feed_task('upstream-failed', uid, TaskStatus.UPSTREAM_FAILED)
+    await _feed_task('soft-deleted', uid, TaskStatus.IN_PROGRESS, deleted_at=utc_now())
+    await _feed_task('sprite', uid, TaskStatus.IN_PROGRESS, task_type=TaskType.SPRITE_GENERATION)
+
+    assert await _feed_ids(uid) == ['kept']
+
+
+async def test_progress_feed_with_no_tasks_is_empty(clean_database):
+    uid = await _feed_user('feed-owner')
+
+    rows, has_more = await _feed(uid)
+
+    assert rows == []
+    assert has_more is False
+
+
+async def test_progress_feed_ranks_active_before_finished_and_finished_by_recency(clean_database):
+    uid = await _feed_user('feed-owner')
+    await _feed_task('complete-older', uid, TaskStatus.COMPLETE, age=timedelta(minutes=30))
+    await _feed_task('failed', uid, TaskStatus.FAILED, age=timedelta(minutes=10))
+    await _feed_task('complete-newer', uid, TaskStatus.COMPLETE, age=timedelta(minutes=1))
+    await _feed_task('queued', uid, TaskStatus.QUEUED, age=timedelta(minutes=45))
+    await _feed_task('running', uid, TaskStatus.IN_PROGRESS, age=timedelta(minutes=50))
+    await _feed_task('resolving', uid, TaskStatus.RESOLVING, age=timedelta(minutes=55))
+
+    assert await _feed_ids(uid) == [
+        'running',
+        'resolving',
+        'queued',
+        'complete-newer',
+        'failed',
+        'complete-older',
+    ]
+
+
+async def test_progress_feed_reports_when_it_cut_rows_off(clean_database):
+    uid = await _feed_user('feed-owner')
+    for n in range(3):
+        await _feed_task(f'task-{n}', uid, TaskStatus.QUEUED, queue_sequence=n)
+
+    rows, has_more = await _feed(uid, limit=2)
+    exact_rows, exact_has_more = await _feed(uid, limit=3)
+
+    assert [row.task_id for row in rows] == ['task-0', 'task-1']
+    assert has_more is True
+    assert len(exact_rows) == 3
+    assert exact_has_more is False
+
+
+async def test_progress_feed_lists_queued_tasks_in_the_order_they_will_run(clean_database):
+    uid = await _feed_user('feed-owner')
+    await _feed_task('background-first', uid, TaskStatus.QUEUED, priority=5, queue_sequence=1)
+    await _feed_task('manual-later', uid, TaskStatus.QUEUED, priority=1, queue_sequence=3)
+    await _feed_task('manual-earlier', uid, TaskStatus.QUEUED, priority=1, queue_sequence=2)
+
+    assert await _feed_ids(uid) == ['manual-earlier', 'manual-later', 'background-first']
+
+
+async def test_progress_feed_holds_slots_for_finished_tasks_behind_a_long_queue(clean_database):
+    uid = await _feed_user('feed-owner')
+    for n in range(5):
+        await _feed_task(f'queued-{n}', uid, TaskStatus.QUEUED, queue_sequence=n)
+    await _feed_task('just-finished', uid, TaskStatus.COMPLETE)
+
+    rows, has_more = await _feed(uid, limit=4, finished_slots=2)
+
+    assert [row.task_id for row in rows] == ['queued-0', 'queued-1', 'queued-2', 'just-finished']
+    assert has_more is True
+
+
+async def test_progress_feed_caps_finished_tasks_at_their_slots_when_the_queue_is_full(
+    clean_database,
+):
+    uid = await _feed_user('feed-owner')
+    for n in range(5):
+        await _feed_task(f'queued-{n}', uid, TaskStatus.QUEUED, queue_sequence=n)
+    for n in range(5):
+        await _feed_task(f'finished-{n}', uid, TaskStatus.COMPLETE, age=timedelta(minutes=n))
+
+    rows, has_more = await _feed(uid, limit=4, finished_slots=2)
+
+    assert [row.task_id for row in rows] == ['queued-0', 'queued-1', 'finished-0', 'finished-1']
+    assert has_more is True
+
+
+async def test_progress_feed_gives_finished_tasks_the_slots_active_ones_leave(clean_database):
+    uid = await _feed_user('feed-owner')
+    await _feed_task('running', uid, TaskStatus.IN_PROGRESS)
+    for n in range(4):
+        await _feed_task(f'finished-{n}', uid, TaskStatus.FAILED, age=timedelta(minutes=n))
+
+    rows, has_more = await _feed(uid, limit=4, finished_slots=1)
+
+    assert [row.task_id for row in rows] == ['running', 'finished-0', 'finished-1', 'finished-2']
+    assert has_more is True

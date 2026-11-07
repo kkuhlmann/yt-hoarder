@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>YT-Hoarder</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body class="popup">
+    <header class="bar">
+      <img src="icons/icon-32.png" alt="" width="20" height="20" />
+      <h1>YT-Hoarder</h1>
+      <button id="open-settings" type="button" class="link">Settings</button>
+    </header>
+
+    <section id="setup" hidden>
+      <p>Connect the extension to your YT-Hoarder server first.</p>
+      <button id="setup-button" type="button" class="primary">Open settings</button>
+    </section>
+
+    <p id="unsupported" class="hint" hidden>Open a YouTube video, playlist or channel page.</p>
+
+    <div id="tabs" class="tabs" role="tablist" aria-label="Action" hidden>
+      <button id="tab-download" type="button" role="tab" aria-controls="download" aria-selected="true">
+        Download
+      </button>
+      <button id="tab-subscribe" type="button" role="tab" aria-controls="subscribe" aria-selected="false" tabindex="-1">
+        Subscribe
+      </button>
+    </div>
+
+    <section id="download" role="tabpanel" aria-labelledby="tab-download" hidden>
+      <fieldset id="download-scope" class="group" hidden>
+        <legend>What to download</legend>
+        <div class="choices" role="radiogroup" aria-label="What to download">
+          <label><input type="radio" name="download-scope" value="video" checked /> This video</label>
+          <label><input type="radio" name="download-scope" value="playlist" /> Whole playlist</label>
+        </div>
+      </fieldset>
+      <fieldset class="group">
+        <legend>Format</legend>
+        <div class="choices" role="radiogroup" aria-label="Download as">
+          <label><input type="radio" name="download-mode" value="VIDEO" checked /> Video</label>
+          <label><input type="radio" name="download-mode" value="AUDIO" /> Audio</label>
+          <label><input type="radio" name="download-mode" value="TRANSCRIPT" /> Transcript only</label>
+        </div>
+      </fieldset>
+      <fieldset id="download-quality" class="group">
+        <legend>Quality</legend>
+        <div id="download-video-quality-row">
+          <select id="download-video-quality" aria-label="Video quality"></select>
+        </div>
+        <div id="download-audio-quality-row" title="Audio quality (max bitrate)">
+          <select id="download-audio-quality" aria-label="Audio quality"></select>
+        </div>
+      </fieldset>
+      <fieldset class="group">
+        <legend>Extras</legend>
+        <div class="options">
+          <label id="download-transcribe-row" class="check">
+            <input id="download-transcribe" type="checkbox" /> Also transcribe
+          </label>
+          <label class="check" title="Download it again even if you already have it">
+            <input id="download-overwrite" type="checkbox" /> Overwrite
+          </label>
+        </div>
+      </fieldset>
+      <button id="download-button" type="button" class="primary">Download</button>
+      <p id="subscribe-hint" class="hint" hidden>To subscribe, open the channel's page.</p>
+    </section>
+
+    <section id="subscribe" role="tabpanel" aria-labelledby="tab-subscribe" hidden>
+      <p id="subscribe-url" class="url"></p>
+      <fieldset class="group">
+        <legend>Format</legend>
+        <div class="choices" role="radiogroup" aria-label="Subscribe as">
+          <label><input type="radio" name="subscribe-mode" value="VIDEO" checked /> Video</label>
+          <label><input type="radio" name="subscribe-mode" value="AUDIO" /> Audio</label>
+          <label><input type="radio" name="subscribe-mode" value="TRANSCRIPT" /> Transcript only</label>
+        </div>
+      </fieldset>
+      <fieldset id="subscribe-quality" class="group">
+        <legend>Quality</legend>
+        <div id="subscribe-video-quality-row">
+          <select id="subscribe-video-quality" aria-label="Video quality"></select>
+        </div>
+        <div id="subscribe-audio-quality-row" title="Audio quality (max bitrate)">
+          <select id="subscribe-audio-quality" aria-label="Audio quality"></select>
+        </div>
+      </fieldset>
+      <fieldset id="subscribe-transcribe-row" class="group">
+        <legend>Extras</legend>
+        <div class="options">
+          <label class="check">
+            <input id="subscribe-transcribe" type="checkbox" /> Also transcribe
+          </label>
+        </div>
+      </fieldset>
+      <details id="subscribe-filters" class="group filters">
+        <summary>Filters <span class="muted">(optional)</span></summary>
+        <label class="field">
+          Title filter
+          <input id="subscribe-filter" type="text" placeholder="Only titles containing…" />
+        </label>
+        <label class="field">
+          Uploaded after
+          <input id="subscribe-after" type="date" />
+        </label>
+        <div class="pair">
+          <label class="field">
+            Min length <span class="muted">(min)</span>
+            <input id="subscribe-min" type="number" min="0" step="0.5" inputmode="decimal" />
+          </label>
+          <label class="field">
+            Max length <span class="muted">(min)</span>
+            <input id="subscribe-max" type="number" min="0" step="0.5" inputmode="decimal" />
+          </label>
+        </div>
+      </details>
+      <button id="subscribe-button" type="button" class="primary">Subscribe</button>
+    </section>
+
+    <p id="result" class="result" role="status" aria-live="polite"></p>
+
+    <section id="tasks" hidden>
+      <h2>Tasks</h2>
+      <p id="tasks-status" class="tasks-status" role="status"></p>
+      <ul id="tasks-list" class="tasks"></ul>
+    </section>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

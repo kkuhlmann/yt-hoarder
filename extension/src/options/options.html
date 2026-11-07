@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>YT-Hoarder settings</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body class="options">
+    <h1>YT-Hoarder settings</h1>
+    <p class="hint">
+      In YT-Hoarder, open the account menu → <strong>Access tokens</strong>, create a
+      <strong>Browser extension</strong> token, and paste it here with your server's address.
+    </p>
+
+    <form id="settings-form" novalidate>
+      <label class="field">
+        Server URL
+        <input
+          id="server-url"
+          type="url"
+          placeholder="https://hoarder.example.com"
+          autocomplete="url"
+          spellcheck="false"
+        />
+      </label>
+      <p id="http-warning" class="warning" hidden>
+        This address uses plain HTTP, so the token travels unencrypted. Use HTTPS unless the server
+        is only reachable on your own network.
+      </p>
+
+      <label class="field" for="token">Token</label>
+      <div class="row">
+        <input id="token" type="password" placeholder="ytdlh_…" autocomplete="off" spellcheck="false" />
+        <button id="toggle-token" type="button" aria-pressed="false">Show</button>
+      </div>
+
+      <button id="save" type="submit" class="primary">Save &amp; test</button>
+    </form>
+
+    <p id="status" class="result" role="status" aria-live="polite"></p>
+
+    <script src="options.js"></script>
+  </body>
+</html>

@@ -122,11 +122,20 @@ jobs:
             *-*) prerelease="--prerelease" ;;
           esac
 
+          # Notes start at the previous app release. Left to itself GitHub starts
+          # at the latest release of any kind, which can be a browser-extension
+          # release (extension-v*) and would drop app changes from these notes.
+          previous="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 100 \
+            --json tagName --jq '[.[].tagName | select(startswith("v"))] | first // empty')"
+          start=""
+          if [ -n "$previous" ]; then start="--notes-start-tag $previous"; fi
+
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG" \
             --verify-tag \
             --generate-notes \
+            $start \
             $prerelease
 
 # Retention: do NOT reach for actions/delete-package-versions with

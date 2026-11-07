@@ -17,27 +17,14 @@ from starlette.types import Receive, Scope, Send
 from config import settings
 from mcp_server.context import McpPrincipal, acting_as
 from mcp_server.links import resolve_base_url
+from models import TokenScope
 from rate_limit import MCP_AUTH_FAIL_LIMITER, MCP_TOKEN_LIMITER, client_key
 from repositories import access_tokens as token_repo
 
 if TYPE_CHECKING:
     from mcp.server import MCPServer
 
-_UNAUTHORIZED_HEADERS = {'WWW-Authenticate': 'Bearer realm="yt-hoarder", error="invalid_token"'}
-
-
-def bearer_token(header: str | None) -> str | None:
-    """The token from an `Authorization: Bearer ytdlh_…` header, or None.
-
-    Anything not carrying the token prefix is rejected here, before it costs a lookup.
-    """
-    if not header:
-        return None
-    scheme, _, value = header.partition(' ')
-    value = value.strip()
-    if scheme.lower() != 'bearer' or not value.startswith(token_repo.TOKEN_PREFIX):
-        return None
-    return value
+_UNAUTHORIZED_HEADERS = {'WWW-Authenticate': token_repo.BEARER_CHALLENGE}
 
 
 def _too_many(wait: float) -> JSONResponse:
@@ -73,8 +60,8 @@ class McpEndpoint:
             await _too_many(wait)(scope, receive, send)
             return
 
-        raw = bearer_token(request.headers.get('authorization'))
-        resolved = await token_repo.resolve_token(raw) if raw else None
+        raw = token_repo.bearer_token(request.headers.get('authorization'))
+        resolved = await token_repo.resolve_token(raw, TokenScope.MCP) if raw else None
         if resolved is None:
             MCP_AUTH_FAIL_LIMITER.retry_after(address)
             response = JSONResponse(

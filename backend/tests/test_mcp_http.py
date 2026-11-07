@@ -22,7 +22,7 @@ from auth import create_jwt_token
 from config import settings
 from database import db
 from mcp_server.server import build_mcp_server
-from models import PersonalAccessToken, User, utc_now
+from models import PersonalAccessToken, TokenScope, User, utc_now
 from rate_limit import MCP_AUTH_FAIL_LIMITER, MCP_TOKEN_LIMITER
 from repositories import access_tokens as token_repo
 from services import transcript as transcript_service
@@ -98,8 +98,8 @@ def two_users(clean_database, pgvector_schema):
         session.close()
 
 
-async def _token(user_id: int, **kwargs) -> str:
-    _row, raw = await token_repo.create_token(user_id, kwargs.pop('name', 'agent'), None)
+async def _token(user_id: int, scope: TokenScope = TokenScope.MCP, **kwargs) -> str:
+    _row, raw = await token_repo.create_token(user_id, kwargs.pop('name', 'agent'), None, scope)
     return raw
 
 
@@ -178,6 +178,16 @@ async def test_requests_without_a_valid_token_are_refused(mcp_server, two_users,
         assert challenge.startswith('Bearer')
         # No RFC 9728 pointer: there is no OAuth server for a client to go looking for.
         assert 'resource_metadata' not in challenge
+
+
+async def test_an_extension_token_does_not_authenticate_mcp(mcp_server, two_users):
+    async with serving(mcp_server) as client:
+        alice, *_ = two_users
+        token = await _token(alice, TokenScope.EXTENSION)
+
+        response = await _post(client, token, _rpc('tools/list'))
+
+        assert response.status_code == 401
 
 
 async def test_a_session_cookie_does_not_authenticate_mcp(mcp_server, two_users):

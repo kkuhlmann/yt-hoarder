@@ -129,6 +129,34 @@ Actions → Release → **Run workflow** builds from a branch. It pushes `<branc
 only — never `latest`, since there's no semver tag involved. Useful as a dry run of the build, or
 for a one-off image, but it is not a release.
 
+## Releasing the browser extension
+
+The extension under `extension/` is versioned and released on its own, with **`extension-v*`
+tags**. `release.yml` matches only `v*`, so neither kind of tag triggers the other's workflow.
+
+1. Bump `version` in `extension/package.json` and run `npm install` there so the lockfile follows.
+   The build copies that version into both manifests.
+2. On `main`, after CI is green: `git tag extension-v0.1.0 && git push origin extension-v0.1.0`.
+3. `.github/workflows/extension-release.yml` first checks that the tag matches `package.json`, then
+   runs the extension's checks. It then opens a GitHub Release titled `Browser extension v0.1.0`
+   carrying three zips: `yt-hoarder-chrome-0.1.0.zip`, `yt-hoarder-firefox-0.1.0.zip` and
+   `yt-hoarder-source-0.1.0.zip`. A second hyphen (`extension-v0.2.0-rc.1`) makes it a pre-release.
+
+Two things keep the two release streams apart on the Releases page:
+- **The "Latest" badge.** The extension's releases are created with `--latest=false`, so the badge
+  stays on the app release, which is what `/releases/latest` and the install docs point at.
+- **The notes.** Each workflow passes `--notes-start-tag` for the previous release of its own kind,
+  so app notes never start from an extension tag, and the reverse. The changelog still lists every
+  PR merged in that range, whichever part of the repo it touched.
+
+**The stores are uploaded by hand** from that release's zips:
+- **Chrome Web Store:** upload the Chrome zip in the developer dashboard.
+- **addons.mozilla.org:** upload the Firefox zip. When AMO asks for source code, upload the source
+  zip, because the add-on is bundled with esbuild. The reviewer's build steps are in
+  `extension/README.md`.
+- **The gecko id** in `extension/src/manifest.json` (`yt-hoarder@kkuhlmann.github.io`) is permanent
+  once the first version is on AMO.
+
 ## If the repo moves
 
 `release.yml` derives the image name from `${{ github.repository }}` and follows a move on its own.

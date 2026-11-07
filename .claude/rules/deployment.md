@@ -61,7 +61,10 @@ easy to undo by accident:
   so on that route the job runs *after* someone has written the notes by hand. An unconditional
   `gh release create` fails there, and `--notes`/`edit` would overwrite them. It also `needs:
   publish`, so the page can never announce a version whose image failed to build. `contents: write`
-  is scoped to that one job; the top-level token stays read-only.
+  is scoped to that one job; the top-level token stays read-only. It passes `--notes-start-tag` for
+  the previous `v*` release because the browser extension releases from the same repo
+  (`extension-v*`, `extension-release.yml`), and auto-generated notes would otherwise start at
+  whichever release came last.
 - **Never reintroduce `platform:` / `platforms:` into the compose files.** Those keys pinned everything
   to amd64 and forced the backend under QEMU on ARM hosts. Omitting them makes Docker use the host
   platform, and `DOCKER_DEFAULT_PLATFORM` is the per-user override if someone genuinely needs one.

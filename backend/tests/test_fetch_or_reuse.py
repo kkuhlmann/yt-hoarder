@@ -594,10 +594,13 @@ class TestNextCheckAt:
     def test_known_future_premiere_schedules_for_air_time(self):
         """get_release_timestamp yields naive *local* time; next_check_at is naive UTC.
         Asserting on the resulting instant catches a missing conversion, which a
-        same-basis comparison would hide on a UTC host."""
-        result = _next_check_at(None, datetime.now() + timedelta(days=3), None)
+        same-basis comparison would hide on a UTC host. The premiere starts as a UTC
+        instant rather than as local time plus three days, which is off by an hour
+        whenever a DST change falls in between."""
+        air_time = (utc_now() + timedelta(days=3)).replace(microsecond=0)
+        local = datetime.fromtimestamp(air_time.replace(tzinfo=UTC).timestamp())
 
-        assert timedelta(days=3) - timedelta(minutes=1) < result - utc_now() < timedelta(days=3)
+        assert _next_check_at(None, local, None) == air_time
 
     def test_past_release_falls_back_to_the_ladder(self):
         """post_live: the stream aired, the VOD just isn't ready yet."""

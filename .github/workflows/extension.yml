@@ -1,0 +1,50 @@
+name: Extension
+
+# The browser extension under extension/ is its own npm package with its own
+# checks, so it runs only when that package or these workflows change. Don't
+# make this a required status check: a path-filtered workflow never reports on a
+# PR that doesn't touch its paths, which would leave every such PR blocked.
+on:
+  pull_request:
+    paths:
+      - "extension/**"
+      - ".github/workflows/extension*.yml"
+  push:
+    branches: [main]
+    paths:
+      - "extension/**"
+      - ".github/workflows/extension*.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  extension:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run lint
+
+      - run: npm test
+
+      - run: npm run build
+
+      # The Firefox build only: dist/chrome carries background.service_worker,
+      # which web-ext reports as an error by design.
+      - run: npm run lint:firefox

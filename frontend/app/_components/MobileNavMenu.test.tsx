@@ -32,6 +32,7 @@ function renderMenu(props: Partial<Parameters<typeof MobileNavMenu>[0]> = {}) {
       setAdminMode={vi.fn()}
       onOpenStorage={vi.fn()}
       onOpenChangePassword={vi.fn()}
+      onOpenAccessTokens={vi.fn()}
       onSignOut={vi.fn()}
       {...props}
     />
@@ -113,26 +114,20 @@ describe("MobileNavMenu", () => {
     expect(screen.getByText("Admin view")).toBeDefined()
   })
 
-  it("offers MCP access tokens only when its owner passes a handler", () => {
-    // NavigationBar omits the handler while the MCP server is disabled.
-    renderMenu()
-    openMenu()
-    expect(screen.queryByText("MCP access tokens…")).toBeNull()
-
-    cleanup()
+  it("asks its owner to open the access tokens dialog", () => {
     const onOpenAccessTokens = vi.fn()
     renderMenu({ onOpenAccessTokens })
     openMenu()
-    fireEvent.click(screen.getByText("MCP access tokens…"))
+    fireEvent.click(screen.getByText("Access tokens…"))
     expect(onOpenAccessTokens).toHaveBeenCalledOnce()
   })
 
-  it("hides MCP access tokens while offline", () => {
+  it("hides access tokens while offline", () => {
     mockOffline.mockReturnValue({ offlineMode: true, setOfflineMode: vi.fn() })
-    renderMenu({ onOpenAccessTokens: vi.fn() })
+    renderMenu()
     openMenu()
 
-    expect(screen.queryByText("MCP access tokens…")).toBeNull()
+    expect(screen.queryByText("Access tokens…")).toBeNull()
   })
 
   it("asks its owner to open the storage dialog rather than opening one itself", () => {

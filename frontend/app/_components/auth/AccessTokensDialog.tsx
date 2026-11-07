@@ -6,6 +6,7 @@ import toast from "react-hot-toast"
 import { ClipboardDocumentIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { apiUrl, errorMessage } from "@/app/lib/api"
 import { copyToClipboard } from "@/app/lib/clipboard"
+import { extensionServerUrl } from "@/app/lib/extensionConnection"
 import { claudeCodeCommand, mcpServerUrl, mcpServersJson } from "@/app/lib/mcpConnection"
 import { useFetchEffect } from "@/app/_hooks/useFetchEffect"
 import { formatDate, formatRelativeTime } from "@/app/utils"
@@ -23,9 +24,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { LoadingSpinner } from "../LoadingSpinner"
 
+export type TokenScope = "mcp" | "extension"
+
 export type AccessToken = {
   id: number
   name: string
+  scope: TokenScope
   token_prefix: string
   created_at: string
   last_used_at: string | null
@@ -42,8 +46,13 @@ const EXPIRY_CHOICES: { label: string; days: number | null }[] = [
   { label: "1 year", days: 365 },
 ]
 
+const SCOPES: Record<TokenScope, { choice: string; badge: string; placeholder: string }> = {
+  mcp: { choice: "AI agent (MCP)", badge: "MCP", placeholder: "Name, e.g. laptop-claude" },
+  extension: { choice: "Browser extension", badge: "extension", placeholder: "Name, e.g. firefox-laptop" },
+}
+
 const STATUS_LABEL: Record<AccessToken["status"], { label: string; title: string }> = {
-  active: { label: "active", title: "Agents can use this token" },
+  active: { label: "active", title: "This token works" },
   expired: { label: "expired", title: "Past its expiry date" },
   invalidated: {
     label: "invalidated",
@@ -84,21 +93,26 @@ function CopyRow({ label, value, multiline = false }: { label: string; value: st
 type AccessTokensDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Whether the instance runs the MCP server; MCP tokens can only be created while it does. */
+  mcpEnabled: boolean
 }
 
 /**
- * Personal access tokens for the MCP endpoint, which lets the user's own AI agent
- * (Claude Code, LM Studio, Cursor…) search their transcripts as them.
+ * Personal access tokens, of two scopes: MCP, which lets the user's own AI agent
+ * (Claude Code, LM Studio, Cursor…) search their transcripts as them, and the browser
+ * extension's, which can only add downloads and subscriptions.
  *
  * Opened from the account menu rather than Settings: Settings is admin-only, and every
  * approved user can create tokens for themselves.
  */
-export function AccessTokensDialog({ open, onOpenChange }: AccessTokensDialogProps) {
+export function AccessTokensDialog({ open, onOpenChange, mcpEnabled }: AccessTokensDialogProps) {
   const [tokens, setTokens] = useState<AccessToken[]>([])
   const [name, setName] = useState("")
+  const [chosenScope, setChosenScope] = useState<TokenScope>("mcp")
   const [expiryDays, setExpiryDays] = useState<number | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [created, setCreated] = useState<CreatedToken | null>(null)
+  const scope: TokenScope = mcpEnabled ? chosenScope : "extension"
 
   const loadTokens = useCallback(async (signal: AbortSignal) => {
     try {
@@ -113,7 +127,9 @@ export function AccessTokensDialog({ open, onOpenChange }: AccessTokensDialogPro
     initialLoading: true,
   })
 
-  const serverUrl = typeof window === "undefined" ? "" : mcpServerUrl(apiUrl("/mcp"), window.location.origin)
+  const origin = typeof window === "undefined" ? "" : window.location.origin
+  const mcpUrl = origin && mcpServerUrl(apiUrl("/mcp"), origin)
+  const extensionUrl = origin && extensionServerUrl(apiUrl(""), origin)
 
   const close = () => {
     onOpenChange(false)
@@ -129,6 +145,7 @@ export function AccessTokensDialog({ open, onOpenChange }: AccessTokensDialogPro
       const resp = await axios.post<CreatedToken>(apiUrl("/auth/tokens"), {
         name: name.trim(),
         expires_in_days: expiryDays,
+        scope,
       })
       setCreated(resp.data)
       setName("")
@@ -141,7 +158,7 @@ export function AccessTokensDialog({ open, onOpenChange }: AccessTokensDialogPro
   }
 
   const revokeToken = async (token: AccessToken) => {
-    if (!window.confirm(`Revoke "${token.name}"? Agents using it stop working immediately.`)) return
+    if (!window.confirm(`Revoke "${token.name}"? Whatever uses it stops working immediately.`)) return
     try {
       await axios.delete(apiUrl(`/auth/tokens/${token.id}`))
       toast.success(`Revoked "${token.name}"`)
@@ -161,21 +178,33 @@ export function AccessTokensDialog({ open, onOpenChange }: AccessTokensDialogPro
     >
       <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{created ? "New access token" : "MCP access tokens"}</DialogTitle>
+          <DialogTitle>{created ? "New access token" : "Access tokens"}</DialogTitle>
           <DialogDescription>
             {created
-              ? "Shown once. Paste it into your agent now; it can't be displayed again."
-              : "Let your own AI agent (Claude Code, LM Studio, Cursor…) search your transcripts. A token acts as you and sees exactly what you see."}
+              ? "Shown once. Copy it now; it can't be displayed again."
+              : mcpEnabled
+                ? "Let your own AI agent (Claude Code, LM Studio, Cursor…) search your transcripts, or the YT-Hoarder browser extension add downloads and subscriptions. A token acts as you; an extension token can only add things."
+                : "Let the YT-Hoarder browser extension add downloads and subscriptions as you. An extension token can only add things: it can't read or delete anything."}
           </DialogDescription>
         </DialogHeader>
 
-        {created ? (
+        {created?.scope === "extension" ? (
           <div className="space-y-4 py-2">
             <CopyRow label="Token" value={created.token} />
-            <CopyRow label="Claude Code" value={claudeCodeCommand(serverUrl, created.token)} />
+            <CopyRow label="Server URL" value={extensionUrl} />
+            <p className="text-xs text-text-muted">
+              Paste both into the extension&apos;s settings. It keeps the token in your browser
+              profile, so revoke it here if that profile is shared or lost. Changing your password
+              also revokes every token.
+            </p>
+          </div>
+        ) : created ? (
+          <div className="space-y-4 py-2">
+            <CopyRow label="Token" value={created.token} />
+            <CopyRow label="Claude Code" value={claudeCodeCommand(mcpUrl, created.token)} />
             <CopyRow
               label="mcp.json (LM Studio, Cursor, …)"
-              value={mcpServersJson(serverUrl, created.token)}
+              value={mcpServersJson(mcpUrl, created.token)}
               multiline
             />
             <p className="text-xs text-text-muted">
@@ -186,13 +215,35 @@ export function AccessTokensDialog({ open, onOpenChange }: AccessTokensDialogPro
           </div>
         ) : (
           <div className="space-y-5 py-2">
-            <CopyRow label="Server URL" value={serverUrl} />
+            {mcpEnabled && (
+              <div className="flex gap-2" role="radiogroup" aria-label="Token type">
+                {(Object.keys(SCOPES) as TokenScope[]).map((value) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={scope === value}
+                    variant={scope === value ? "matrix" : "outline"}
+                    size="sm"
+                    onClick={() => setChosenScope(value)}
+                    className="flex-1"
+                  >
+                    {SCOPES[value].choice}
+                  </Button>
+                ))}
+              </div>
+            )}
+
+            <CopyRow
+              label={scope === "mcp" ? "MCP server URL" : "Server URL"}
+              value={scope === "mcp" ? mcpUrl : extensionUrl}
+            />
 
             <div className="space-y-2">
               <div className="text-xs font-mono text-text-muted">New token</div>
               <div className="flex flex-col sm:flex-row gap-2">
                 <Input
-                  placeholder="Name, e.g. laptop-claude"
+                  placeholder={SCOPES[scope].placeholder}
                   value={name}
                   maxLength={64}
                   onChange={(e) => setName(e.target.value)}
@@ -254,6 +305,7 @@ export function AccessTokensDialog({ open, onOpenChange }: AccessTokensDialogPro
                           <span className="font-mono text-sm text-text-primary truncate">
                             {token.name}
                           </span>
+                          <Badge variant="outline">{SCOPES[token.scope].badge}</Badge>
                           <Badge
                             variant={token.status === "active" ? "success" : "warning"}
                             title={STATUS_LABEL[token.status].title}

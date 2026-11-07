@@ -1,4 +1,4 @@
-"""Personal access tokens: the bearer credentials the MCP endpoint accepts."""
+"""Personal access tokens: the bearer credentials the MCP endpoint and the extension use."""
 
 import hashlib
 import secrets
@@ -10,15 +10,18 @@ from sqlalchemy import delete, func, or_, update
 from sqlmodel import select
 
 from database import db
-from models import PersonalAccessToken, User, utc_now
+from models import PersonalAccessToken, TokenScope, User, utc_now
 
 # A recognisable prefix, so a leaked token is easy to spot and to reject before any lookup.
 TOKEN_PREFIX = 'ytdlh_'  # noqa: S105 — a public prefix, not a credential
+# A plain Bearer challenge on every 401, with no RFC 9728 resource metadata that would send
+# clients looking for an OAuth server that does not exist.
+BEARER_CHALLENGE = 'Bearer realm="yt-hoarder", error="invalid_token"'
 MAX_TOKENS_PER_USER = 20
 # Long enough to identify a token in a list, far too short to be one.
 DISPLAY_PREFIX_LENGTH = 12
 # last_used_at is informational, so it is written at most this often per token
-# rather than on every MCP call.
+# rather than on every call.
 TOUCH_INTERVAL = timedelta(seconds=60)
 
 
@@ -41,10 +44,24 @@ def hash_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def bearer_token(header: str | None) -> str | None:
+    """The token from an `Authorization: Bearer ytdlh_…` header, or None.
+
+    Anything not carrying the token prefix is rejected here, before it costs a lookup.
+    """
+    if not header:
+        return None
+    scheme, _, value = header.partition(' ')
+    value = value.strip()
+    if scheme.lower() != 'bearer' or not value.startswith(TOKEN_PREFIX):
+        return None
+    return value
+
+
 def token_status(token: PersonalAccessToken, user: User, now: datetime) -> TokenStatus:
     """Why a token does or does not authenticate right now.
 
-    Shared by the MCP auth path and the token list, so the list can show the
+    Shared by both bearer auth paths and the token list, so the list can show the
     user exactly why a token stopped working. The password rule mirrors the
     cookie session's `iat` check: every password change path writes
     `password_changed_at`, so tokens die with the sessions without any of those
@@ -60,7 +77,7 @@ def token_status(token: PersonalAccessToken, user: User, now: datetime) -> Token
 
 
 async def create_token(
-    user_id: int, name: str, expires_in_days: int | None
+    user_id: int, name: str, expires_in_days: int | None, scope: TokenScope
 ) -> tuple[PersonalAccessToken, str]:
     """Create a token and return it with its plaintext, which is never stored."""
     raw = TOKEN_PREFIX + secrets.token_urlsafe(32)
@@ -68,6 +85,7 @@ async def create_token(
     token = PersonalAccessToken(
         user_id=user_id,
         name=name,
+        scope=scope,
         token_hash=hash_token(raw),
         token_prefix=raw[:DISPLAY_PREFIX_LENGTH],
         created_at=now,
@@ -130,18 +148,23 @@ async def delete_all_tokens_for_user(user_id: int) -> int:
         return result.rowcount
 
 
-async def resolve_token(raw: str) -> ResolvedToken | None:
-    """The active token and its user for a presented plaintext, or None.
+async def resolve_token(raw: str, scope: TokenScope) -> ResolvedToken | None:
+    """The active token of `scope` and its user for a presented plaintext, or None.
 
     Looked up by hash, so the database never sees the plaintext and the lookup
-    leaks nothing useful through timing.
+    leaks nothing useful through timing. The scope is part of the lookup rather than
+    a check afterwards, so a token presented on the wrong surface is simply not
+    found, and its last_used_at is never touched.
     """
     now = utc_now()
     async with db.get_async_session() as session:
         stmt = (
             select(PersonalAccessToken, User)
             .join(User, User.id == PersonalAccessToken.user_id)
-            .where(PersonalAccessToken.token_hash == hash_token(raw))
+            .where(
+                PersonalAccessToken.token_hash == hash_token(raw),
+                PersonalAccessToken.scope == scope,
+            )
         )
         row = (await session.execute(stmt)).first()
         if row is None:

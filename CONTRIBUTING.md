@@ -95,6 +95,16 @@ npm run build            # or: task frontend:build
 Unlike the backend ones, the `task frontend:*` targets fall back to running inside the Docker
 `frontend` container when the host has no Node — start it with `task dev` first.
 
+**Browser extension** (from `extension/`, host Node 24 or later, no container fallback):
+
+```bash
+npm ci                   # or: task extension:install
+npm test                 # or: task extension:test
+npm run typecheck && npm run lint && npm run build && npm run lint:firefox   # or: task extension:lint
+```
+
+[`extension/README.md`](extension/README.md) covers loading the build unpacked in Chrome and Firefox.
+
 Frontend tests use [Vitest](https://vitest.dev/) and are co-located next to their source as
 `*.test.ts` / `*.test.tsx`. The default environment is `node`; a test that touches the DOM opts in
 per-file with a `// @vitest-environment jsdom` docblock on its first line. See

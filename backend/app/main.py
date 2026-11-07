@@ -21,6 +21,7 @@ from repositories import settings as settings_repo
 from repositories.errors import InvalidStateError, NotFoundError
 from routers.auth import router as auth_router
 from routers.clips import router as clips_router
+from routers.extension import router as extension_router
 from routers.media import router as media_router
 from routers.media_details import router as media_details_router
 from routers.playlists import router as playlists_router
@@ -180,6 +181,7 @@ app.include_router(playlists_router, tags=['playlists'], prefix=f'{API_PREFIX}/p
 app.include_router(sse_router, tags=['sse'], prefix=f'{API_PREFIX}/sse')
 app.include_router(settings_router, tags=['settings'], prefix=f'{API_PREFIX}/settings')
 app.include_router(stats_router, tags=['stats'], prefix=f'{API_PREFIX}/stats')
+app.include_router(extension_router, tags=['extension'], prefix=f'{API_PREFIX}/extension')
 # Always registered, answering 404 while mcp.enabled is off, so it is indistinguishable
 # from an unknown path then. Both spellings, ahead of the SPA catch-all below.
 app.add_route(f'{API_PREFIX}/mcp', mcp_endpoint, include_in_schema=False)

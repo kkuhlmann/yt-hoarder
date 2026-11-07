@@ -20,8 +20,7 @@ type MobileNavMenuProps = {
   setAdminMode: (enabled: boolean) => void
   onOpenStorage: () => void
   onOpenChangePassword: () => void
-  /** Omitted while the MCP server is disabled, which hides the entry. */
-  onOpenAccessTokens?: () => void
+  onOpenAccessTokens: () => void
   onSignOut: () => void
 }
 
@@ -100,9 +99,7 @@ export function MobileNavMenu({
               </DropdownMenuCheckboxItem>
             )}
             <DropdownMenuItem onSelect={onOpenChangePassword}>Change password…</DropdownMenuItem>
-            {onOpenAccessTokens && (
-              <DropdownMenuItem onSelect={onOpenAccessTokens}>MCP access tokens…</DropdownMenuItem>
-            )}
+            <DropdownMenuItem onSelect={onOpenAccessTokens}>Access tokens…</DropdownMenuItem>
             <DropdownMenuItem onSelect={onSignOut}>Sign out</DropdownMenuItem>
           </>
         )}
