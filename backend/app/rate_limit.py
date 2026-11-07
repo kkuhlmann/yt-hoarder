@@ -1,4 +1,4 @@
-"""In-process sliding-window rate limiting for the unauthenticated auth endpoints and MCP.
+"""In-process sliding-window rate limiting for the unauthenticated auth endpoints and tokens.
 
 Keyed on client address alone, never on the submitted username. A per-username counter
 would let anyone lock a chosen account out of its own sign-in, and would reintroduce the
@@ -96,12 +96,23 @@ MCP_TOKEN_LIMITER = SlidingWindowLimiter(limit=180, window_seconds=60)
 # guessed, so this is about keeping junk requests off the database, not brute force.
 MCP_AUTH_FAIL_LIMITER = SlidingWindowLimiter(limit=30, window_seconds=300)
 
+# The extension's calls are clicks, but each one can start a job, so its budget is tighter
+# than MCP's. Its own limiters, so a misconfigured agent can't lock the extension out.
+EXTENSION_TOKEN_LIMITER = SlidingWindowLimiter(limit=60, window_seconds=60)
+EXTENSION_AUTH_FAIL_LIMITER = SlidingWindowLimiter(limit=30, window_seconds=300)
+# The popup polls its task list every few seconds while open. Its own budget, so polling
+# can never use up the submits' share of EXTENSION_TOKEN_LIMITER, or the reverse.
+EXTENSION_POLL_LIMITER = SlidingWindowLimiter(limit=60, window_seconds=60)
+
 ALL_LIMITERS = (
     LOGIN_LIMITER,
     REGISTER_LIMITER,
     RECOVERY_LIMITER,
     MCP_TOKEN_LIMITER,
     MCP_AUTH_FAIL_LIMITER,
+    EXTENSION_TOKEN_LIMITER,
+    EXTENSION_AUTH_FAIL_LIMITER,
+    EXTENSION_POLL_LIMITER,
 )
 
 

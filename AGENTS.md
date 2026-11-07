@@ -20,7 +20,8 @@ one covering the area they're about to touch.
 | Dockerfiles, compose files, workflows, `Taskfile.yml`, `setup.sh`, `config.py` | `.claude/rules/deployment.md` | Taskfile container traps, multi-arch images and GHCR, config plumbing |
 | `backend/tests/` | `.claude/rules/testing.md` | The conftest fixture chain, and why each piece of it is load-bearing |
 | `app/ytdlp/` | `.claude/rules/ytdlp.md` | Player clients, the three throttling knobs, POT provider keys, cookie handling, impersonation |
-| `app/mcp_server/`, `repositories/access_tokens.py`, `routers/tokens.py` | `.claude/rules/mcp.md` | Why the MCP transport must be stateless, Route not Mount, its own bearer auth, the token validity rules, the logging restore, in-app link base URLs |
+| `app/mcp_server/`, `repositories/access_tokens.py`, `routers/tokens.py`, `routers/extension.py` | `.claude/rules/mcp.md` | Why the MCP transport must be stateless, Route not Mount, its own bearer auth, token scopes and the extension's REST bearer path, the token validity rules, the logging restore, in-app link base URLs |
+| `extension/`, `.github/workflows/extension*.yml` | `.claude/rules/extension.md` | The browser extension: its permission model, background-only fetches, URL rules mirroring `ytdlp/urls.py`, per-browser manifests, finding the API base, release tags |
 
 **New guidance goes in whichever file matches its scope** — cross-cutting here, area-specific in the
 matching rule file. Every rule file must keep its `paths:` frontmatter: without it the file loads
@@ -70,7 +71,9 @@ endpoint answers 200 with a page of HTML, which no client can tell from a real r
 worker deciding whether a reply is cacheable least of all. `resolve_spa_file` returns `None` for those paths;
 everything else still falls back to the shell so client-side routes keep booting. The MCP endpoint
 (`{API_PREFIX}/mcp`, `mcp_server/http.py`) is registered there too, as two exact routes ahead of the
-catch-all; personal access tokens for it are managed under `/auth/tokens`.
+catch-all. Personal access tokens, for MCP and for the browser extension, are managed under
+`/auth/tokens`; `/extension/me` is how the extension checks its token and `/extension/tasks` is the
+task list its popup polls.
 
 ### Frontend (`frontend/app/`)
 
@@ -86,6 +89,13 @@ the snapshot's semantics are in that rule file too. The toolchain carries severa
 accident — Tailwind's `@theme inline` block, the non-monotonic radius scale, `@source` paths,
 `allowedDevOrigins` — all in `.claude/rules/frontend.md`.
 
+### Browser extension (`extension/`)
+
+A separate npm package, with its own build, tests and CI workflow. It is one WebExtension (Manifest V3)
+built twice, for Chrome and Firefox, and it sends the current YouTube page to the server as a download
+or a subscription using an extension-scoped token, and lists the user's task progress in its popup. It is versioned and released on its own, with
+`extension-v*` tags. Its constraints are in `.claude/rules/extension.md`.
+
 ## Authentication & Access Control
 
 JWT via HTTP-only cookies. First registered user is auto-admin and auto-approved; the rest need admin
@@ -98,11 +108,18 @@ filter at all. A shared user's "delete" removes only their own access row; the e
 owner. Tags and ratings are **per-user, not per-entity** — `Tag`, `MediaTag` and `MediaRating` all
 carry `user_id`, so two users sharing a media row keep independent tags and ratings on it.
 
-**Personal access tokens authenticate the MCP endpoint and nothing else**, and the cookie never
-authenticates MCP: the REST middleware reads only the cookie, the MCP endpoint only the `Bearer`
-header. A token acts as its user with the same Owner → Shared scope as the UI (never admin view), and
-dies with a password change by the same `password_changed_at` rule as cookie sessions. Details in
-`.claude/rules/mcp.md`.
+**Personal access tokens are scoped, and each scope opens one surface only.**
+- **`mcp` tokens** authenticate `/mcp` only.
+- **`extension` tokens** authenticate only `POST /ytdl/`, `POST /subscriptions`,
+  `GET /extension/me` and `GET /extension/tasks`. They go through the
+  `get_cookie_or_extension_user_id`, `get_extension_token` and `get_extension_poll_token`
+  dependencies, never through the auth middleware, which reads only the cookie.
+- **Every other REST route stays cookie-only.** Neither scope works in the other's place, and the
+  cookie never authenticates MCP, `/extension/me` or `/extension/tasks`.
+- **A token acts as its user**, with the same Owner → Shared scope as the UI and never admin view. It
+  dies with a password change by the same `password_changed_at` rule as cookie sessions.
+
+Details in `.claude/rules/mcp.md`.
 
 **Storage limits:** `User.storage_limit_bytes` (nullable, None = unlimited), set via
 `PUT /auth/users/{user_id}/storage-limit`, measured from actual files owned by the user.

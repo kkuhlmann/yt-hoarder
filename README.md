@@ -22,7 +22,7 @@
 
 <div align="center">
 
-**[Features](#features)** · **[On mobile](#on-mobile)** · **[Research with AI](#research-with-an-ai-agent)** · **[Installation](#installation)** · **[Usage](#usage)** · **[Configuration](#configuration)** · **[Troubleshooting](#troubleshooting)** · **[Development](#development)** · **[Support](#support)** · **[License](#license)**
+**[Features](#features)** · **[On mobile](#on-mobile)** · **[Research with AI](#research-with-an-ai-agent)** · **[Browser extension](#browser-extension)** · **[Installation](#installation)** · **[Usage](#usage)** · **[Configuration](#configuration)** · **[Troubleshooting](#troubleshooting)** · **[Development](#development)** · **[Support](#support)** · **[License](#license)**
 
 [Download options](#download-options) · [Subscription options](#subscription-options) · [Searching](#searching) · [Transcripts](#transcripts) · [Offline mode](#offline-mode)
 
@@ -114,11 +114,25 @@ Every claim carries its citation, so checking the answer takes a click.
   `/yt-hoarder:research`.
 
 **Getting started:** a new install has it on already (an older one needs `mcp.enabled: true` in
-`config.yml` and a restart). Create a token from the account menu → **MCP Access Tokens**; the
-dialog shows the exact
+`config.yml` and a restart). Create a token from the account menu → **Access Tokens** → **AI agent
+(MCP)**; the dialog shows the exact
 `claude mcp add` command, or the `mcp.json` snippet for LM Studio and Cursor, with your server's
 address and token filled in. Full details in
 [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md#ai-agents-mcp).
+
+## Browser extension
+
+Send the YouTube page you're on to YT-Hoarder from the browser toolbar:
+
+- **Download** the video, or the whole playlist it's playing in, as video, audio or transcript only.
+- **Subscribe** to the channel or playlist.
+
+One extension covers Chrome and Firefox. It signs in with a **browser-extension access token**,
+created from the account menu → **Access Tokens**. That token can add downloads and subscriptions
+and show their progress in the popup, but it can't read your library or open your transcripts, and
+the only thing it can replace is a video you download again with Overwrite. It needs
+YT-Hoarder 0.3.0 or later. Installing and setting it up are covered in
+[`docs/EXTENSION.md`](docs/EXTENSION.md).
 
 ## Installation
 
@@ -305,7 +319,7 @@ what works offline are in [`docs/OFFLINE.md`](docs/OFFLINE.md).
 - **Release version** — `.env`: `YT_HOARDER_TAG`, `latest` by default; pin it to hold a version
   through updates
 - **AI agent access (MCP)** — on in a new install (`mcp.enabled`); `setup.sh --no-mcp` leaves it off.
-  Each user creates a token from the account menu → **MCP Access Tokens**, which shows the exact command to
+  Each user creates a token from the account menu → **Access Tokens**, which shows the exact command to
   connect Claude Code or the `mcp.json` snippet for LM Studio and Cursor
 
 `config.yml` is the single source of application settings and is documented in full in
@@ -349,6 +363,12 @@ npm install
 npm run dev          # dev server
 npm run build        # production build (Turbopack)
 npm run lint         # eslint flat config; `next lint` was removed in Next 16
+
+# Browser extension (Chrome + Firefox, Manifest V3)
+cd extension
+npm ci
+npm test             # Vitest
+npm run build        # dist/chrome and dist/firefox
 ```
 
 With [Task](https://taskfile.dev/) installed, `task published` / `task up` / `task down` /

@@ -1,4 +1,4 @@
-"""Managing MCP access tokens over REST, with the normal cookie session."""
+"""Managing access tokens over REST, with the normal cookie session."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -6,11 +6,6 @@ from fastapi.testclient import TestClient
 from config import settings
 from main import app
 from repositories.access_tokens import MAX_TOKENS_PER_USER
-
-
-@pytest.fixture
-def mcp_on(monkeypatch):
-    monkeypatch.setattr(settings.mcp, 'enabled', True)
 
 
 def _second_user(client) -> tuple[int, TestClient]:
@@ -38,10 +33,35 @@ def test_create_returns_the_token_once_and_list_never_does(authenticated_client,
     assert body['token'].startswith(listed[0]['token_prefix'])
 
 
-def test_create_404s_while_mcp_is_disabled(authenticated_client, monkeypatch):
+@pytest.mark.parametrize('payload', [{'name': 'x'}, {'name': 'x', 'scope': 'mcp'}])
+def test_mcp_tokens_404_while_mcp_is_disabled(authenticated_client, monkeypatch, payload):
     monkeypatch.setattr(settings.mcp, 'enabled', False)
 
-    assert authenticated_client.post('/auth/tokens', json={'name': 'x'}).status_code == 404
+    assert authenticated_client.post('/auth/tokens', json=payload).status_code == 404
+
+
+def test_extension_tokens_do_not_need_mcp(authenticated_client, monkeypatch):
+    monkeypatch.setattr(settings.mcp, 'enabled', False)
+
+    created = authenticated_client.post('/auth/tokens', json={'name': 'x', 'scope': 'extension'})
+
+    assert created.status_code == 201
+    assert created.json()['scope'] == 'extension'
+
+
+def test_scope_defaults_to_mcp_and_is_listed(authenticated_client, mcp_on):
+    authenticated_client.post('/auth/tokens', json={'name': 'agent'})
+    authenticated_client.post('/auth/tokens', json={'name': 'browser', 'scope': 'extension'})
+
+    listed = authenticated_client.get('/auth/tokens').json()
+
+    assert {t['name']: t['scope'] for t in listed} == {'agent': 'mcp', 'browser': 'extension'}
+
+
+def test_an_unknown_scope_is_rejected(authenticated_client, mcp_on):
+    response = authenticated_client.post('/auth/tokens', json={'name': 'x', 'scope': 'admin'})
+
+    assert response.status_code == 422
 
 
 @pytest.mark.parametrize(
@@ -60,13 +80,15 @@ def test_expiry_is_set_from_days(authenticated_client, mcp_on):
     assert body['expires_at'] is not None
 
 
-def test_create_stops_at_the_cap(authenticated_client, mcp_on):
+def test_create_stops_at_the_cap_whatever_the_scope(authenticated_client, mcp_on):
     for index in range(MAX_TOKENS_PER_USER):
-        assert (
-            authenticated_client.post('/auth/tokens', json={'name': f't{index}'}).status_code == 201
-        )
+        scope = 'mcp' if index % 2 else 'extension'
+        body = {'name': f't{index}', 'scope': scope}
+        assert authenticated_client.post('/auth/tokens', json=body).status_code == 201
 
-    assert authenticated_client.post('/auth/tokens', json={'name': 'one more'}).status_code == 409
+    for scope in ('mcp', 'extension'):
+        body = {'name': 'one more', 'scope': scope}
+        assert authenticated_client.post('/auth/tokens', json=body).status_code == 409
 
 
 def test_users_cannot_see_or_revoke_each_others_tokens(authenticated_client, mcp_on):

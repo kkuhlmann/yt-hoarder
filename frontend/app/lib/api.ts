@@ -12,7 +12,7 @@ import axios from "axios"
 
 import { readOfflineMode } from "./offlineMode"
 
-const DEV_API_PORT = "8000"
+export const DEV_API_PORT = "8000"
 
 function apiBase(): string {
   const configured = process.env.NEXT_PUBLIC_BACKEND_API

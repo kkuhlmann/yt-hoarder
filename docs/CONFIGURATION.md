@@ -89,18 +89,21 @@ mcp:
   public_url: ""   # optional, see below
 ```
 
-While it is off, the endpoint answers 404 and the token menu is hidden.
+While it is off, the endpoint answers 404 and the token dialog offers only browser-extension tokens.
 
-**Tokens.** Every approved user creates their own tokens from the account menu → **MCP Access
-Tokens**. A token is shown once, acts as its user, and sees exactly what that user sees in the app:
-their own media and media shared with them. It stops working when:
+**Tokens.** Every approved user creates their own tokens from the account menu → **Access Tokens**,
+choosing **AI agent (MCP)**. A token is shown once, acts as its user, and sees exactly what that user
+sees in the app: their own media and media shared with them. It stops working when:
 
 - it reaches its optional expiry;
 - the user revokes it;
 - the user's password changes, the same rule that signs out their other sessions;
 - an admin revokes all of a user's tokens from **Settings → User Management**.
 
-Tokens authenticate the MCP endpoint only, never the rest of the API.
+An MCP token authenticates the MCP endpoint only, never the rest of the API. The same dialog makes
+**browser-extension** tokens, a separate kind that can only add downloads and subscriptions (see
+[EXTENSION.md](EXTENSION.md)). Neither kind works in the other's place, and the 20-token limit per
+user counts both.
 
 **Connecting a client.** Any MCP client that can send a custom header works. It needs two things:
 

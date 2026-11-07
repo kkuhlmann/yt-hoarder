@@ -26,6 +26,7 @@ const { AccessTokensDialog } = await import("./AccessTokensDialog")
 const TOKEN = {
   id: 1,
   name: "laptop",
+  scope: "mcp" as const,
   token_prefix: "ytdlh_abcdef",
   created_at: "2026-10-01T12:00:00",
   last_used_at: null,
@@ -45,7 +46,7 @@ afterEach(() => {
 
 describe("AccessTokensDialog", () => {
   it("lists the user's tokens with their status", async () => {
-    render(<AccessTokensDialog open onOpenChange={vi.fn()} />)
+    render(<AccessTokensDialog open onOpenChange={vi.fn()} mcpEnabled />)
 
     expect(await screen.findByText("laptop")).toBeDefined()
     expect(screen.getByText("active")).toBeDefined()
@@ -54,7 +55,7 @@ describe("AccessTokensDialog", () => {
 
   it("shows a new token once, with copy-paste setup, then returns to the list", async () => {
     post.mockResolvedValue({ data: { ...TOKEN, id: 2, name: "agent", token: "ytdlh_secret" } })
-    render(<AccessTokensDialog open onOpenChange={vi.fn()} />)
+    render(<AccessTokensDialog open onOpenChange={vi.fn()} mcpEnabled />)
     await screen.findByText("laptop")
 
     fireEvent.change(screen.getByPlaceholderText(/Name/), { target: { value: "agent" } })
@@ -64,6 +65,7 @@ describe("AccessTokensDialog", () => {
     expect(post).toHaveBeenCalledWith(expect.stringMatching(/\/auth\/tokens$/), {
       name: "agent",
       expires_in_days: null,
+      scope: "mcp",
     })
     expect(screen.getByText(/claude mcp add --scope user --transport http yt-hoarder/)).toBeDefined()
 
@@ -75,7 +77,7 @@ describe("AccessTokensDialog", () => {
   it("never shows the token again after the dialog is closed", async () => {
     post.mockResolvedValue({ data: { ...TOKEN, id: 2, name: "agent", token: "ytdlh_secret" } })
     const onOpenChange = vi.fn()
-    const { rerender } = render(<AccessTokensDialog open onOpenChange={onOpenChange} />)
+    const { rerender } = render(<AccessTokensDialog open onOpenChange={onOpenChange} mcpEnabled />)
     await screen.findByText("laptop")
     fireEvent.change(screen.getByPlaceholderText(/Name/), { target: { value: "agent" } })
     fireEvent.click(screen.getByRole("button", { name: "Create" }))
@@ -83,8 +85,8 @@ describe("AccessTokensDialog", () => {
 
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" })
     expect(onOpenChange).toHaveBeenCalledWith(false)
-    rerender(<AccessTokensDialog open={false} onOpenChange={onOpenChange} />)
-    rerender(<AccessTokensDialog open onOpenChange={onOpenChange} />)
+    rerender(<AccessTokensDialog open={false} onOpenChange={onOpenChange} mcpEnabled />)
+    rerender(<AccessTokensDialog open onOpenChange={onOpenChange} mcpEnabled />)
 
     await screen.findByText("laptop")
     expect(screen.queryByText("ytdlh_secret")).toBeNull()
@@ -92,7 +94,7 @@ describe("AccessTokensDialog", () => {
 
   it("sends the chosen expiry", async () => {
     post.mockResolvedValue({ data: { ...TOKEN, id: 2, token: "ytdlh_secret" } })
-    render(<AccessTokensDialog open onOpenChange={vi.fn()} />)
+    render(<AccessTokensDialog open onOpenChange={vi.fn()} mcpEnabled />)
     await screen.findByText("laptop")
 
     fireEvent.change(screen.getByPlaceholderText(/Name/), { target: { value: "short" } })
@@ -100,12 +102,12 @@ describe("AccessTokensDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create" }))
 
     await waitFor(() =>
-      expect(post).toHaveBeenCalledWith(expect.any(String), { name: "short", expires_in_days: 90 })
+      expect(post).toHaveBeenCalledWith(expect.any(String), { name: "short", expires_in_days: 90, scope: "mcp" })
     )
   })
 
   it("cannot create a token without a name", async () => {
-    render(<AccessTokensDialog open onOpenChange={vi.fn()} />)
+    render(<AccessTokensDialog open onOpenChange={vi.fn()} mcpEnabled />)
     await screen.findByText("laptop")
 
     expect((screen.getByRole("button", { name: "Create" }) as HTMLButtonElement).disabled).toBe(true)
@@ -114,7 +116,7 @@ describe("AccessTokensDialog", () => {
   it("revokes a token after confirmation", async () => {
     del.mockResolvedValue({})
     vi.spyOn(window, "confirm").mockReturnValue(true)
-    render(<AccessTokensDialog open onOpenChange={vi.fn()} />)
+    render(<AccessTokensDialog open onOpenChange={vi.fn()} mcpEnabled />)
     await screen.findByText("laptop")
 
     fireEvent.click(screen.getByTitle("Revoke laptop"))
@@ -122,9 +124,57 @@ describe("AccessTokensDialog", () => {
     await waitFor(() => expect(del).toHaveBeenCalledWith(expect.stringMatching(/\/auth\/tokens\/1$/)))
   })
 
+  it("labels each token with its scope", async () => {
+    get.mockResolvedValue({ data: [TOKEN, { ...TOKEN, id: 2, name: "firefox", scope: "extension" }] })
+    render(<AccessTokensDialog open onOpenChange={vi.fn()} mcpEnabled />)
+    await screen.findByText("firefox")
+
+    expect(screen.getByText("MCP")).toBeDefined()
+    expect(screen.getByText("extension")).toBeDefined()
+  })
+
+  it("creates a browser-extension token and shows only what the extension needs", async () => {
+    post.mockResolvedValue({
+      data: { ...TOKEN, id: 2, name: "firefox", scope: "extension", token: "ytdlh_secret" },
+    })
+    render(<AccessTokensDialog open onOpenChange={vi.fn()} mcpEnabled />)
+    await screen.findByText("laptop")
+
+    fireEvent.click(screen.getByRole("radio", { name: "Browser extension" }))
+    fireEvent.change(screen.getByPlaceholderText(/Name/), { target: { value: "firefox" } })
+    fireEvent.click(screen.getByRole("button", { name: "Create" }))
+
+    expect(await screen.findByText("ytdlh_secret")).toBeDefined()
+    expect(post).toHaveBeenCalledWith(expect.any(String), {
+      name: "firefox",
+      expires_in_days: null,
+      scope: "extension",
+    })
+    expect(screen.getByText("Server URL")).toBeDefined()
+    expect(screen.queryByText(/claude mcp add/)).toBeNull()
+  })
+
+  it("offers only extension tokens while MCP is disabled", async () => {
+    post.mockResolvedValue({ data: { ...TOKEN, id: 2, scope: "extension", token: "ytdlh_secret" } })
+    render(<AccessTokensDialog open onOpenChange={vi.fn()} mcpEnabled={false} />)
+    await screen.findByText("laptop")
+
+    expect(screen.queryByRole("radiogroup", { name: "Token type" })).toBeNull()
+    fireEvent.change(screen.getByPlaceholderText(/Name/), { target: { value: "firefox" } })
+    fireEvent.click(screen.getByRole("button", { name: "Create" }))
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(expect.any(String), {
+        name: "firefox",
+        expires_in_days: null,
+        scope: "extension",
+      })
+    )
+  })
+
   it("does not revoke when the confirmation is declined", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(false)
-    render(<AccessTokensDialog open onOpenChange={vi.fn()} />)
+    render(<AccessTokensDialog open onOpenChange={vi.fn()} mcpEnabled />)
     await screen.findByText("laptop")
 
     fireEvent.click(screen.getByTitle("Revoke laptop"))

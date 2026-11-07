@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
 
 from dependencies import (
+    CookieOrExtensionCaller,
+    get_cookie_or_extension_caller,
     get_effective_user_id,
     get_entity_or_404,
     get_required_user_id,
@@ -48,8 +50,17 @@ async def get_one_subscription(
     response_model=dict,
 )
 async def add_subscription(
-    subscription: Subscription, user_id: int = Depends(get_required_user_id)
+    subscription: Subscription,
+    caller: CookieOrExtensionCaller = Depends(get_cookie_or_extension_caller),
 ):
+    # A subscription's overwrite deletes and re-downloads every video of the channel the
+    # user already has, on every check, and a token can't edit the subscription to stop it.
+    if subscription.overwrite and caller.via_extension_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A browser-extension token can't add a subscription with overwrite on.",
+        )
+    user_id = caller.user_id
     if subscription.string_match == '':
         subscription.string_match = None
     # The table model is bound directly, so no validator ran; media_type is the unique key's

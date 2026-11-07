@@ -315,6 +315,54 @@ tasks:
       - task: _frontend:npm
         vars: { NPM_ARGS: install }
 
+  # === Browser Extension ===
+
+  # Run npm with {{.NPM_ARGS}} in extension/. Host-only, so neither compose-file
+  # trap applies — the extension has no container.
+  _extension:npm:
+    internal: true
+    dir: extension
+    cmds:
+      - npm {{.NPM_ARGS}}
+
+  extension:install:
+    desc: Install browser extension dependencies (host npm)
+    cmds:
+      - task: _extension:npm
+        vars: { NPM_ARGS: ci }
+
+  extension:build:
+    desc: Build the browser extension into extension/dist/{chrome,firefox}
+    cmds:
+      - task: _extension:npm
+        vars: { NPM_ARGS: run build }
+
+  extension:test:
+    desc: Run browser extension tests
+    cmds:
+      - task: _extension:npm
+        vars: { NPM_ARGS: test }
+
+  extension:lint:
+    desc: Typecheck and lint the browser extension, plus web-ext lint on the Firefox build
+    cmds:
+      - task: _extension:npm
+        vars: { NPM_ARGS: run typecheck }
+      - task: _extension:npm
+        vars: { NPM_ARGS: run lint }
+      - task: _extension:npm
+        vars: { NPM_ARGS: run build }
+      - task: _extension:npm
+        vars: { NPM_ARGS: run lint:firefox }
+
+  extension:package:
+    desc: Zip the Chrome, Firefox and source builds into extension/artifacts/
+    cmds:
+      - task: _extension:npm
+        vars: { NPM_ARGS: run package }
+      - task: _extension:npm
+        vars: { NPM_ARGS: run package:source }
+
   # === Build & Deploy ===
 
   build:

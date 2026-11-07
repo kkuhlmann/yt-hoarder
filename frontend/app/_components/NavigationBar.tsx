@@ -296,11 +296,9 @@ export function NavigationBar() {
                           <DropdownMenuItem onClick={() => setChangePasswordOpen(true)}>
                             Change Password
                           </DropdownMenuItem>
-                          {user.mcp_enabled && (
-                            <DropdownMenuItem onClick={() => setAccessTokensOpen(true)}>
-                              MCP Access Tokens
-                            </DropdownMenuItem>
-                          )}
+                          <DropdownMenuItem onClick={() => setAccessTokensOpen(true)}>
+                            Access Tokens
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={logout}>
                             Sign out
                           </DropdownMenuItem>
@@ -317,9 +315,7 @@ export function NavigationBar() {
                     setAdminMode={setAdminMode}
                     onOpenStorage={() => setStorageOpen(true)}
                     onOpenChangePassword={() => setChangePasswordOpen(true)}
-                    onOpenAccessTokens={
-                      user.mcp_enabled ? () => setAccessTokensOpen(true) : undefined
-                    }
+                    onOpenAccessTokens={() => setAccessTokensOpen(true)}
                     onSignOut={logout}
                   />
                 </span>
@@ -330,8 +326,12 @@ export function NavigationBar() {
       </div>
 
       <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
-      {user?.mcp_enabled && (
-        <AccessTokensDialog open={accessTokensOpen} onOpenChange={setAccessTokensOpen} />
+      {user && (
+        <AccessTokensDialog
+          open={accessTokensOpen}
+          onOpenChange={setAccessTokensOpen}
+          mcpEnabled={Boolean(user.mcp_enabled)}
+        />
       )}
       <OfflineStorageDialog open={storageOpen} onOpenChange={setStorageOpen} />
     </nav>

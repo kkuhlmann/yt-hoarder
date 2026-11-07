@@ -1,4 +1,4 @@
-"""Personal access tokens for the MCP endpoint, managed with the normal cookie session."""
+"""Personal access tokens for MCP and the browser extension, managed with the cookie session."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 from config import settings
 from dependencies import get_admin_user_id, get_required_user_id
 from logger import logger
-from models import PersonalAccessToken, User, utc_now
+from models import PersonalAccessToken, TokenScope, User, utc_now
 from repositories import access_tokens as token_repo
 from repositories import users as user_repo
 from repositories.access_tokens import MAX_TOKENS_PER_USER, TokenStatus
@@ -17,6 +17,8 @@ router = APIRouter()
 class TokenCreateRequest(BaseModel):
     name: str = Field(max_length=64)
     expires_in_days: int | None = Field(default=None, ge=1, le=3650)
+    # Defaults to MCP, the only scope a client written before scopes existed could mean.
+    scope: TokenScope = TokenScope.MCP
 
     @field_validator('name')
     @classmethod
@@ -31,6 +33,7 @@ class TokenCreateRequest(BaseModel):
 class TokenResponse(BaseModel):
     id: int
     name: str
+    scope: TokenScope
     token_prefix: str
     created_at: str
     last_used_at: str | None
@@ -50,6 +53,7 @@ def _token_response(token: PersonalAccessToken, user: User) -> TokenResponse:
     return TokenResponse(
         id=token.id,
         name=token.name,
+        scope=token.scope,
         token_prefix=token.token_prefix,
         created_at=token.created_at.isoformat(),
         last_used_at=token.last_used_at.isoformat() if token.last_used_at else None,
@@ -60,7 +64,7 @@ def _token_response(token: PersonalAccessToken, user: User) -> TokenResponse:
 
 @router.get('', response_model=list[TokenResponse])
 async def list_tokens(user_id: int = Depends(get_required_user_id)):
-    """List your MCP access tokens, newest first, with why any of them no longer work."""
+    """List your access tokens, newest first, with why any of them no longer work."""
     user = await user_repo.get_user_by_id(user_id)
     tokens = await token_repo.list_tokens_for_user(user_id)
     return [_token_response(token, user) for token in tokens]
@@ -68,8 +72,13 @@ async def list_tokens(user_id: int = Depends(get_required_user_id)):
 
 @router.post('', status_code=status.HTTP_201_CREATED, response_model=TokenCreatedResponse)
 async def create_token(body: TokenCreateRequest, user_id: int = Depends(get_required_user_id)):
-    """Create an MCP access token. The response carries the token itself, exactly once."""
-    if not settings.mcp.enabled:
+    """Create an access token. The response carries the token itself, exactly once.
+
+    `scope` decides where it works: `mcp` for the MCP endpoint (only while the MCP server
+    is enabled), `extension` for the browser extension, which can only add downloads and
+    subscriptions.
+    """
+    if body.scope is TokenScope.MCP and not settings.mcp.enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail='The MCP server is not enabled'
         )
@@ -80,25 +89,27 @@ async def create_token(body: TokenCreateRequest, user_id: int = Depends(get_requ
         )
 
     user = await user_repo.get_user_by_id(user_id)
-    token, raw = await token_repo.create_token(user_id, body.name, body.expires_in_days)
-    logger.info(f'User {user_id} created MCP token id={token.id} ({token.token_prefix}…)')
+    token, raw = await token_repo.create_token(user_id, body.name, body.expires_in_days, body.scope)
+    logger.info(
+        f'User {user_id} created {token.scope.value} token id={token.id} ({token.token_prefix}…)'
+    )
     return TokenCreatedResponse(**_token_response(token, user).model_dump(), token=raw)
 
 
 @router.delete('/{token_id}', status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_token(token_id: int, user_id: int = Depends(get_required_user_id)):
-    """Revoke one of your tokens. Agents using it get 401 from their next call."""
+    """Revoke one of your tokens. Whatever uses it gets 401 from its next call."""
     if not await token_repo.delete_token(user_id, token_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Token not found')
-    logger.info(f'User {user_id} revoked MCP token id={token_id}')
+    logger.info(f'User {user_id} revoked access token id={token_id}')
 
 
 @router.delete('/users/{user_id}', response_model=RevokeAllResponse)
 async def revoke_all_tokens_for_user(user_id: int, admin_id: int = Depends(get_admin_user_id)):
-    """Revoke every token a user holds. Admin only.
+    """Revoke every token a user holds, of every scope. Admin only.
 
     Works while MCP is disabled too, so an admin can clean up before turning it off.
     """
     revoked = await token_repo.delete_all_tokens_for_user(user_id)
-    logger.info(f'Admin {admin_id} revoked {revoked} MCP token(s) for user id={user_id}')
+    logger.info(f'Admin {admin_id} revoked {revoked} access token(s) for user id={user_id}')
     return RevokeAllResponse(revoked=revoked)

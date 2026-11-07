@@ -25,6 +25,17 @@ updates:
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
 
+  # Browser extension — npm (package.json in /extension). The same TypeScript
+  # ceiling as the frontend: it lints through typescript-eslint too.
+  - package-ecosystem: "npm"
+    directory: "/extension"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+
   # Docker images at the root — Dockerfile.prod (python, uv, node) and
   # pgvector/pgvector:pg17 in the compose files.
   - package-ecosystem: "docker"

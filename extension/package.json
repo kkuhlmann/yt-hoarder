@@ -1,0 +1,35 @@
+{
+  "name": "yt-hoarder-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser extension that sends the YouTube page you're on to a YT-Hoarder server.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "package": "node scripts/build.mjs --package",
+    "package:source": "node scripts/package-source.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
+    "lint:firefox": "web-ext lint --source-dir dist/firefox",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/chrome": "^0.3.7",
+    "@types/node": "^24.19.2",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "fflate": "^0.8.3",
+    "globals": "^17.13.0",
+    "jsdom": "^30.1.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.0.5",
+    "web-ext": "^10.8.0"
+  }
+}

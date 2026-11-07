@@ -39,6 +39,48 @@ ML_LANE_TASK_TYPES = (
 )
 
 
+PROGRESS_FEED_ACTIVE_STATUSES = (
+    TaskStatus.RESOLVING,
+    TaskStatus.QUEUED,
+    TaskStatus.IN_PROGRESS,
+    TaskStatus.POSTPROCESSING,
+    TaskStatus.RETRY,
+    TaskStatus.NOT_READY,
+)
+PROGRESS_FEED_FINISHED_STATUSES = (TaskStatus.COMPLETE, TaskStatus.FAILED)
+
+
+def _status_order():
+    """Rank statuses for display: running, then resolving, queued, retrying, not ready, rest.
+
+    RESOLVING outranks QUEUED: it has no queue_sequence, so under a queue-order tiebreak it
+    would otherwise sort behind every dispatched row — putting a just-submitted download
+    pages away from the user who submitted it.
+    """
+    return case(
+        (TaskRecord.status == TaskStatus.IN_PROGRESS, 1),
+        (TaskRecord.status == TaskStatus.POSTPROCESSING, 1),
+        (TaskRecord.status == TaskStatus.RESOLVING, 2),
+        (TaskRecord.status == TaskStatus.QUEUED, 3),
+        (TaskRecord.status == TaskStatus.RETRY, 4),
+        (TaskRecord.status == TaskStatus.NOT_READY, 5),
+        else_=6,
+    )
+
+
+def _run_order() -> tuple:
+    """`_status_order`, then the order the lanes pop in (priority, queue_sequence).
+
+    So users see tasks in the order they'll execute.
+    """
+    return (
+        _status_order(),
+        asc(func.coalesce(TaskRecord.priority, 5)).nullslast(),
+        asc(TaskRecord.queue_sequence).nullslast(),
+        desc(TaskRecord.created_at),
+    )
+
+
 async def get_next_queue_sequence() -> int:
     """Async variant of sync_get_next_queue_sequence for router/dispatch paths."""
     async with db.get_async_session() as session:
@@ -290,26 +332,7 @@ async def get_filtered_tasks(  # noqa: C901 — one branch per optional filter; 
             logger.debug(
                 f'Using default task ordering (sort_by={sort_by}, hasattr={hasattr(TaskRecord, sort_by) if sort_by else "N/A"})'
             )
-            # RESOLVING outranks QUEUED: it has no queue_sequence, so under the tiebreak
-            # below it would otherwise sort behind every dispatched row — putting a
-            # just-submitted download pages away from the user who submitted it.
-            status_order = case(
-                (TaskRecord.status == TaskStatus.IN_PROGRESS, 1),
-                (TaskRecord.status == TaskStatus.POSTPROCESSING, 1),
-                (TaskRecord.status == TaskStatus.RESOLVING, 2),
-                (TaskRecord.status == TaskStatus.QUEUED, 3),
-                (TaskRecord.status == TaskStatus.RETRY, 4),
-                (TaskRecord.status == TaskStatus.NOT_READY, 5),
-                else_=6,
-            )
-            # Matches the actual processing order (priority ASC, queue_sequence ASC) so
-            # users see tasks in the order they'll execute.
-            stmt = stmt.order_by(
-                status_order,
-                asc(func.coalesce(TaskRecord.priority, 5)).nullslast(),
-                asc(TaskRecord.queue_sequence).nullslast(),
-                desc(TaskRecord.created_at),
-            )
+            stmt = stmt.order_by(*_run_order())
 
         offset = (page - 1) * page_size
         stmt = stmt.offset(offset).limit(page_size)
@@ -418,6 +441,52 @@ async def get_filtered_tasks(  # noqa: C901 — one branch per optional filter; 
             'page_count': page_count(total_count, page_size),
             'records': records,
         }
+
+
+async def get_progress_feed(
+    user_id: int, *, finished_within: timedelta, limit: int, finished_slots: int
+) -> tuple[list[TaskRecord], bool]:
+    """A user's active tasks in run order, then those that finished lately, newest first.
+
+    Returns at most `limit` rows and whether any were cut off. Up to `finished_slots` of
+    them are held for finished tasks, so a long queue can't hide the outcome of what the
+    user just asked for; active tasks get every slot the finished ones leave unused.
+
+    Built for a client that polls every few seconds: two small SELECTs, with no count,
+    queue positions or downstream scan like `get_filtered_tasks`. `user_id` is a plain int
+    because this feed has no admin view, and an unfiltered query must not be possible by
+    accident. SPRITE_GENERATION is left out; it is a chain chore the user never asked for.
+    """
+    cutoff = (datetime.now(UTC) - finished_within).replace(tzinfo=None)
+    owned = (
+        TaskRecord.deleted_at.is_(None),
+        TaskRecord.user_id == user_id,
+        TaskRecord.task_type != TaskType.SPRITE_GENERATION,
+    )
+    active_stmt = (
+        select(TaskRecord)
+        .where(*owned, TaskRecord.status.in_(PROGRESS_FEED_ACTIVE_STATUSES))
+        .order_by(*_run_order(), desc(TaskRecord.id))
+        .limit(limit + 1)
+    )
+    finished_stmt = (
+        select(TaskRecord)
+        .where(
+            *owned,
+            TaskRecord.status.in_(PROGRESS_FEED_FINISHED_STATUSES),
+            TaskRecord.updated_at >= cutoff,
+        )
+        .order_by(desc(TaskRecord.updated_at), desc(TaskRecord.id))
+        .limit(limit + 1)
+    )
+    async with db.get_async_session() as session:
+        active = list((await session.execute(active_stmt)).scalars().all())
+        finished = list((await session.execute(finished_stmt)).scalars().all())
+
+    finished_kept = min(len(finished), limit, max(finished_slots, limit - len(active)))
+    active_kept = min(len(active), limit - finished_kept)
+    has_more = active_kept < len(active) or finished_kept < len(finished)
+    return active[:active_kept] + finished[:finished_kept], has_more
 
 
 async def find_one(filter_params: dict) -> TaskRecord | None:

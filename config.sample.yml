@@ -102,7 +102,8 @@ logging:
 # service itself. See docs/CONFIGURATION.md.
 mcp:
   # Nothing can connect until a user creates a token. Set false to make /api/mcp
-  # answer 404 and hide the token menu. A config.yml with no mcp section is off.
+  # answer 404 and stop new MCP tokens; browser-extension tokens are unaffected.
+  # A config.yml with no mcp section is off.
   enabled: true
 
   # The address you open yt-hoarder at, used for the in-app links (?media=&t=)

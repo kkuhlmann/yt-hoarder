@@ -15,6 +15,9 @@ backend/tests
 **/__pycache__
 *.pyc
 
+# The browser extension is its own npm package and never part of the image
+extension
+
 # Runtime state - grows without bound and must never reach a build context
 data/
 

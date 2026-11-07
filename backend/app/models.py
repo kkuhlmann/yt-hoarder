@@ -174,11 +174,17 @@ class User(SQLModel, table=True):
     recovery_code_expires_at: datetime | None = Field(default=None)
 
 
+class TokenScope(str, Enum):
+    MCP = 'mcp'
+    # What each scope opens is decided by the route dependencies; see .claude/rules/mcp.md.
+    EXTENSION = 'extension'
+
+
 class PersonalAccessToken(SQLModel, table=True):
-    """A bearer credential for the MCP endpoint, acting as one user.
+    """A bearer credential acting as one user, on the surface its scope names.
 
     Only a SHA-256 of the token is stored. The token carries 32 random bytes, so a
-    fast hash is safe, where bcrypt's ~250 ms would be paid on every MCP request.
+    fast hash is safe, where bcrypt's ~250 ms would be paid on every request.
     """
 
     __tablename__ = 'personal_access_tokens'
@@ -186,6 +192,7 @@ class PersonalAccessToken(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key='users.id', ondelete='CASCADE', index=True)
     name: str = Field(max_length=64)
+    scope: TokenScope
     token_hash: str = Field(unique=True, index=True)
     token_prefix: str
     created_at: datetime = Field(default_factory=lambda: utc_now())

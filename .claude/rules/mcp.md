@@ -3,14 +3,17 @@ paths:
   - "backend/app/mcp_server/**/*"
   - "backend/app/repositories/access_tokens.py"
   - "backend/app/routers/tokens.py"
+  - "backend/app/routers/extension.py"
   - "backend/tests/test_mcp_*.py"
+  - "backend/tests/routers/test_extension_tokens.py"
+  - "backend/tests/routers/test_tokens.py"
 ---
 
 # MCP server and personal access tokens
 
-Root `AGENTS.md` carries the one-line rule (tokens authenticate MCP only, the cookie never does).
-User-facing setup is in `docs/CONFIGURATION.md` → *AI agents (MCP)*. This is what you need before
-changing the endpoint, the tools or the token rules.
+Root `AGENTS.md` carries the one-line rule: each token scope opens one surface, and the cookie never
+authenticates MCP. User-facing setup is in `docs/CONFIGURATION.md` → *AI agents (MCP)* and
+`docs/EXTENSION.md`. This is what you need before changing the endpoint, the tools or the token rules.
 
 ## The endpoint (`mcp_server/http.py`, wired in `main.py`)
 
@@ -54,6 +57,59 @@ changing the endpoint, the tools or the token rules.
 - **Revoking deletes the row.** No `revoked_at`, so the per-user cap counts real rows.
 - **`last_used_at` is written at most once a minute** through a guarded `UPDATE … WHERE last_used_at
   < now - 60s`, so concurrent calls don't race or write on every request.
+
+## Scopes, and the extension's REST path
+
+- **`PersonalAccessToken.scope` (`mcp` | `extension`) is part of `resolve_token`'s WHERE clause**, not
+  a check after it. `resolve_token` stamps `last_used_at`, so a check afterwards would mark a token
+  used on a surface it can't open. A wrong-scope token is simply not found. Scope is not a
+  `TokenStatus`: it says where a token works, not whether it works.
+- **The column has no default, on the model or in the database.** Migration `add_token_scope`
+  backfilled the pre-scope rows as `MCP` with a server default, then dropped it. `TokenCreateRequest`
+  defaults to `mcp` only because that is all a client predating scopes could have meant.
+- **Only MCP-scope creation is gated on `mcp.enabled`** (404). Extension tokens are creatable with MCP
+  off, which is also why the token menu is no longer gated on `mcp_enabled`.
+- **A third scope needs two migration files.** `tokenscope` is a native Postgres enum, and `ALTER TYPE
+  … ADD VALUE` can't be used in the same transaction (`backend-domains.md` → Migrations).
+- **The extension authenticates in route dependencies (`dependencies.py`), never in
+  `OptionalAuthMiddleware`.**
+  - `get_cookie_or_extension_caller` backs `POST /ytdl/` and `POST /subscriptions`, the only routes
+    the web UI and the extension share. It says whether the call came by token;
+    `get_cookie_or_extension_user_id` is the same dependency for a route that doesn't care.
+  - `get_extension_token` backs `GET /extension/me` and is token-only, so the connection test passes
+    only for what the extension really sends.
+  - `get_extension_poll_token` is `get_extension_token` charged to `EXTENSION_POLL_LIMITER`. It backs
+    `GET /extension/tasks`, which the open popup polls every few seconds.
+  - Adding either to another route widens what an extension token can do. The parametrized "opens
+    nothing else" test in `test_extension_tokens.py` should grow with any route that adopts one.
+- **Overwrite is the one destructive thing an extension token can do, and only on a single
+  download.** `POST /subscriptions` 403s `overwrite: true` from a token. On a subscription,
+  overwrite makes every tick delete and re-download each video of the channel the user already has
+  (`_handle_existing_media`), and a token can't edit the subscription to stop it. A download's
+  overwrite replaces the one copy the user just asked for again.
+- **A `Bearer ytdlh_…` header commits a request to the token path.** An invalid token is a 401 even
+  with a valid cookie beside it. Any other `Authorization` value is ignored rather than refused, so a
+  proxy adding `Basic` auth in front of the app keeps the web UI's cookie path working.
+  `bearer_token()` lives in `access_tokens.py` so both paths parse the header identically.
+- **The token path overwrites `request.state`**, setting `user_id`, `is_admin=False` and the rest from
+  the token's user, so nothing downstream sees the cookie's user or an admin view.
+- **Its limiters are separate from MCP's.** `EXTENSION_TOKEN_LIMITER` allows 60 calls a minute per
+  token, since each call can start a job. `EXTENSION_AUTH_FAIL_LIMITER` counts failures per address.
+  A misconfigured agent therefore can't lock the extension out. All are in `ALL_LIMITERS`, which the
+  conftest reset relies on.
+- **Polling has its own budget, `EXTENSION_POLL_LIMITER`.** At the popup's 3 s cadence it would use
+  half of `EXTENSION_TOKEN_LIMITER`, which is the submit allowance. The failure limiter is still
+  shared per address, so a client that keeps polling with a refused token could lock out everyone
+  behind that address: the popup stops at its first fatal reply, and that is load-bearing.
+- **`GET /extension/tasks` is a lean, owner-only feed, not `GET /tasks`.** It calls
+  `task_records.get_progress_feed` (two small SELECTs: no count, queue positions or downstream scan)
+  with the token user's id, which is typed `int` so there is no admin view to reach by accident.
+  Active rows come first in run order (`_run_order`, shared with the Tasks page), then finished ones
+  newest first. `TASK_FEED_FINISHED_SLOTS` of the 25 are held for finished rows: under one ranking
+  with a single cut, a queued subscription backlog hid the outcome of the download just submitted. The response
+  model leaves out `pending_payload`, `download_job_url`, `upstream_task_ids` and `user_id`, and a test
+  pins its keys. SPRITE_GENERATION is excluded as a chain chore; so are SKIPPED, CANCELLED and
+  UPSTREAM_FAILED. Its timestamps carry an explicit `+00:00`.
 
 ## Tools (`mcp_server/server.py`, `formatting.py`)
 

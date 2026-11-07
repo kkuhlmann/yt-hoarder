@@ -3,16 +3,28 @@
 These are used with Depends() in route handlers to enforce auth requirements.
 """
 
+import math
+from dataclasses import dataclass
 from functools import partial
 
 from fastapi import Depends, HTTPException, Request, status
 
+from models import TokenScope
+from rate_limit import (
+    EXTENSION_AUTH_FAIL_LIMITER,
+    EXTENSION_POLL_LIMITER,
+    EXTENSION_TOKEN_LIMITER,
+    SlidingWindowLimiter,
+    client_key,
+)
+from repositories import access_tokens as token_repo
 from repositories import clip_access as ca_repo
 from repositories import clips as clips_repo
 from repositories import media_access as ma_repo
 from repositories import media_details as md_repo
 from repositories import playlist_access as pa_repo
 from repositories import playlists as playlists_repo
+from repositories.access_tokens import ResolvedToken
 
 
 def get_required_user_id(request: Request) -> int:
@@ -44,6 +56,94 @@ def get_required_user_id(request: Request) -> int:
             detail='Password change required',
         )
     return user_id
+
+
+def _too_many_requests(wait: float) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail='Too many requests. Please try again later.',
+        headers={'Retry-After': str(max(1, math.ceil(wait)))},
+    )
+
+
+async def _authenticate_extension_token(
+    request: Request,
+    raw: str | None,
+    limiter: SlidingWindowLimiter = EXTENSION_TOKEN_LIMITER,
+) -> ResolvedToken:
+    address = client_key(request)
+    if (wait := EXTENSION_AUTH_FAIL_LIMITER.peek(address)) is not None:
+        raise _too_many_requests(wait)
+
+    resolved = await token_repo.resolve_token(raw, TokenScope.EXTENSION) if raw else None
+    if resolved is None:
+        EXTENSION_AUTH_FAIL_LIMITER.retry_after(address)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='A valid browser-extension token is required.',
+            headers={'WWW-Authenticate': token_repo.BEARER_CHALLENGE},
+        )
+
+    if (wait := limiter.retry_after(f'token:{resolved.token.id}')) is not None:
+        raise _too_many_requests(wait)
+
+    # The middleware filled request.state from whatever cookie came along. Replace it, so
+    # anything downstream that reads it sees the token's user, and never an admin view.
+    user = resolved.user
+    request.state.user_id = user.id
+    request.state.username = user.username
+    request.state.is_admin = False
+    request.state.is_approved = user.is_approved
+    request.state.must_change_password = user.must_change_password
+    return resolved
+
+
+async def get_extension_token(request: Request) -> ResolvedToken:
+    """The extension-scoped token this request carries, or raise 401/429.
+
+    Only the Authorization header counts, never the cookie: this backs the extension's
+    connection test, which must pass only for what the extension itself will send.
+    """
+    raw = token_repo.bearer_token(request.headers.get('authorization'))
+    return await _authenticate_extension_token(request, raw)
+
+
+async def get_extension_poll_token(request: Request) -> ResolvedToken:
+    """`get_extension_token` charged to the polling budget instead of the submit one.
+
+    For the task list the popup refreshes every few seconds. Failed authentications still
+    count against the shared per-address limiter, so a client must stop on its first 401.
+    """
+    raw = token_repo.bearer_token(request.headers.get('authorization'))
+    return await _authenticate_extension_token(request, raw, EXTENSION_POLL_LIMITER)
+
+
+@dataclass(frozen=True)
+class CookieOrExtensionCaller:
+    user_id: int
+    via_extension_token: bool
+
+
+async def get_cookie_or_extension_caller(request: Request) -> CookieOrExtensionCaller:
+    """The user behind an extension token when one is presented, else the cookie's.
+
+    For the add-only routes the extension calls, and nothing else. A `Bearer ytdlh_…`
+    header commits the request to the token: an invalid one is a 401 even beside a valid
+    cookie. Any other Authorization header is ignored, so a proxy adding Basic auth in
+    front of the app leaves the web UI's cookie path working.
+    """
+    raw = token_repo.bearer_token(request.headers.get('authorization'))
+    if raw is None:
+        return CookieOrExtensionCaller(get_required_user_id(request), via_extension_token=False)
+    resolved = await _authenticate_extension_token(request, raw)
+    return CookieOrExtensionCaller(resolved.user.id, via_extension_token=True)
+
+
+async def get_cookie_or_extension_user_id(
+    caller: CookieOrExtensionCaller = Depends(get_cookie_or_extension_caller),
+) -> int:
+    """`get_cookie_or_extension_caller` for a route that treats both callers alike."""
+    return caller.user_id
 
 
 def get_admin_user_id(request: Request) -> int:
