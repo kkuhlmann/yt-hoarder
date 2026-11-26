@@ -48,6 +48,7 @@ export function InlinePlaylistVideoPlayer({
     toggleShuffle,
     rateMedia,
     nextTrack,
+    autoAdvance,
   } = useMediaPlayer()
 
   const [currentTime, setCurrentTime] = useState(0)
@@ -138,6 +139,7 @@ export function InlinePlaylistVideoPlayer({
           videoRefCallback={handleVideoRef}
           onEnded={handleVideoEnded}
           queue={mediaSessionQueue}
+          autoAdvance={autoAdvance?.mediaType === "VIDEO" ? autoAdvance : undefined}
         />
 
         {showNextUp && nextTrack && (

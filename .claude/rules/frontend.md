@@ -147,6 +147,21 @@ from a user action (the Refresh button, or the reload after a delete/tag/retry).
 surface needs its own `rows.length === 0` guard around the spinner — `isLoading` already means "the
 user asked for this".
 
+**`useMediaElement` starts the next queue track itself, inside the `ended` event.** On a locked
+iPhone, WebKit suspends the page soon after its audio stops. If the next track waits for the render
+`playNext()` triggers, then for `canplay`, then for `play()`, it starts only when the phone is
+unlocked. So the host passes `autoAdvance` (from `MediaPlayerContext`, which derives it the same
+way `playNext` does), and `handleEnded` sets `src` and the start position and calls `play()` on the
+same element before returning. That `play()` is allowed because a gesture already started this
+element. A brand-new element would be refused, which is why an audio↔video change in a mixed queue
+still waits for the foreground. Two things keep the render that follows from undoing it:
+- **`src` is not a JSX prop on either player.** A layout effect assigns it only when
+  `getAttribute("src")` differs. Setting `src` reloads the element even when the value is
+  unchanged, and that pauses it and rejects the pending `play()`.
+- **`adoptedRef` remembers the track `ended` started** until a render names another. While it is
+  set, the start-time effect doesn't seek it back, and `timeupdate` is ignored until the render
+  catches up. Otherwise the new track's position would be saved under the finished track's id.
+
 `useAudioAnalyser.ts` - Feeds the visualizer's `AnalyserNode` by routing the real `<audio>` element through `ctx.createMediaElementSource(el)` (per-element WeakMap-cached graph, since that call may run only ONCE per element; a parallel strong `liveGraphs` list closes contexts whose element has left the DOM, bounding live AudioContexts over a long session). **Desktop-only by design, and that gate IS the iOS protection:** `createMediaElementSource` reroutes the element's native output into the AudioContext, and on iOS the browser suspends that context on screen-lock → **silences lock-screen/background audio**, with no way to un-route the element. So `getOrCreateGraph` calls `isDesktop()` (UA-based iOS/iPadOS detection + `(pointer: coarse)`) and returns null on any iOS or touch device — no AudioContext is ever created there, the `<audio>` tag stays plain and untouched, and the visualizer simply stays inert. Tapping the element via `captureStream()` → `createMediaStreamSource` looks like a way to avoid the reroute and keep the graph everywhere; it is not, because WebKit doesn't implement `captureStream` — that route is desktop-only too, minus the explicit gate. **CORS:** the real `<audio>` still needs `crossOrigin="use-credentials"` (`MediaPlayer.tsx`) or a tainted cross-origin element yields zeroed frequency data. `ensureStarted()` (called from the visualizer toggle click) creates/resumes the graph inside a user gesture — outside one the context stays suspended and the audio routes into a silent graph; a `visibilitychange` + `pointerdown`/`touchend` effect resumes it after the browser auto-suspends on tab background. `enabled`/`isPlaying` are mirrored into refs from a **commit-phase effect**, not during render, so the rAF-driven `getBars`/`isActive` read fresh values without re-creating the memoized handle.
 
 ## Testing

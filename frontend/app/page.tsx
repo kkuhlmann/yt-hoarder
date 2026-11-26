@@ -132,6 +132,7 @@ export default function HomePage() {
     toggleShuffle,
     rateMedia,
     nextTrack,
+    autoAdvance,
   } = useMediaPlayer()
 
   // The bottom bar's <audio> and whether the audio page (DownloadsCard) is open: both
@@ -689,6 +690,7 @@ export default function HomePage() {
                     analyserHandleRef={analyserHandleRef}
                     queue={mediaSessionQueue}
                     onElement={setAudioElement}
+                    autoAdvance={autoAdvance?.mediaType === "AUDIO" ? autoAdvance : undefined}
                     onEnded={() => {
                       if (
                         audioPlayer.autoplayEnabled &&
