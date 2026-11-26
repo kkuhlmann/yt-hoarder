@@ -15,6 +15,17 @@ export const LIBRARY_MIX_PLAYLIST_ID = -2
 
 const isVirtualPlaylist = (playlistId: number) => playlistId < 0
 
+/**
+ * The track the queue moves to when the current one ends, with the start
+ * position playNext() will give it. Null when nothing would autoplay.
+ */
+export type AutoAdvanceTarget = {
+  id: number
+  startTime: number
+  duration?: number
+  mediaType: 'AUDIO' | 'VIDEO' | undefined
+}
+
 type MediaPlayerState = {
   audioVisible: boolean
   videoVisible: boolean
@@ -105,6 +116,7 @@ type MediaPlayerContextType = {
   rateMedia: (rating: number | null) => Promise<void>
 
   nextTrack: PlaylistMedia | null
+  autoAdvance: AutoAdvanceTarget | null
 }
 
 const MediaPlayerContext = createContext<MediaPlayerContextType | undefined>(
@@ -202,6 +214,18 @@ export function MediaPlayerProvider({ children }: { children: ReactNode }) {
     }
     return mediaPlayer.playlistMedia[nextIndex]
   }, [mediaPlayer.playlistMedia, mediaPlayer.currentIndex])
+
+  // Must agree with what playNext() derives, since the player starts this
+  // track on its own before playNext's state lands (see useMediaElement).
+  const autoAdvance = useMemo<AutoAdvanceTarget | null>(() => {
+    if (!nextTrack || !mediaPlayer.autoplayEnabled || !mediaPlayer.playlistId) return null
+    return {
+      id: nextTrack.media_details_id,
+      startTime: resumeStart(nextTrack, mediaPlayer.resumeEnabled),
+      duration: nextTrack.duration,
+      mediaType: nextTrack.media_type as 'AUDIO' | 'VIDEO' | undefined,
+    }
+  }, [nextTrack, mediaPlayer.autoplayEnabled, mediaPlayer.playlistId, mediaPlayer.resumeEnabled])
 
   useEffect(() => {
     if (!mediaPlayer.media_details_id) return
@@ -686,6 +710,7 @@ export function MediaPlayerProvider({ children }: { children: ReactNode }) {
         notePlaybackPosition,
         rateMedia,
         nextTrack,
+        autoAdvance,
       }}
     >
       {children}

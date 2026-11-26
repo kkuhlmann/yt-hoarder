@@ -5,7 +5,7 @@ import { apiUrl } from "@/app/lib/api"
 import { mediaApi } from "@/app/lib/mediaApi"
 import { formatTime } from "@/app/utils"
 import { type MediaSessionQueue } from "@/app/_hooks/useMediaSession"
-import { useMediaElement } from "@/app/_hooks/useMediaElement"
+import { useMediaElement, type AutoAdvance } from "@/app/_hooks/useMediaElement"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import {
@@ -62,6 +62,7 @@ export function VideoPlayer({
   isClip = false,
   onEnded,
   queue,
+  autoAdvance,
 }: {
   id: number
   startTime?: number
@@ -73,6 +74,7 @@ export function VideoPlayer({
   isClip?: boolean
   onEnded?: () => void
   queue?: MediaSessionQueue
+  autoAdvance?: AutoAdvance
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -88,7 +90,6 @@ export function VideoPlayer({
   const [hover, setHover] = useState({ x: 0, width: 0 })
 
   const {
-    mediaSrc,
     isPlaying,
     currentTime,
     duration,
@@ -110,6 +111,7 @@ export function VideoPlayer({
     onEnded,
     onTimeUpdate,
     queue,
+    autoAdvance,
   })
 
   useEffect(() => {
@@ -244,9 +246,9 @@ export function VideoPlayer({
       onMouseMove={resetControlsTimeout}
       onMouseLeave={() => isPlaying && setShowControls(false)}
     >
+      {/* No src prop: useMediaElement owns it (see its layout effect). */}
       <video
         ref={videoRef}
-        src={mediaSrc}
         className="w-full aspect-video cursor-pointer"
         onClick={handleVideoClick}
         autoPlay
@@ -439,6 +441,7 @@ export function AudioPlayer({
   analyserHandleRef,
   queue,
   onElement,
+  autoAdvance,
 }: {
   id: number
   startTime?: number
@@ -452,6 +455,7 @@ export function AudioPlayer({
   queue?: MediaSessionQueue
   /** Receives the <audio> element, so a page can follow and seek this player. */
   onElement?: (element: HTMLAudioElement | null) => void
+  autoAdvance?: AutoAdvance
 }) {
   const audioRef = useRef<HTMLAudioElement>(null)
 
@@ -462,7 +466,6 @@ export function AudioPlayer({
   }, [onElement])
 
   const {
-    mediaSrc,
     isPlaying,
     currentTime,
     duration,
@@ -483,6 +486,7 @@ export function AudioPlayer({
     isClip,
     onEnded,
     queue,
+    autoAdvance,
   })
 
   // Route the audio element through Web Audio (lazily, only when enabled) so the
@@ -517,10 +521,11 @@ export function AudioPlayer({
           a tainted cross-origin element zeroes frequency data. "use-credentials"
           (not "anonymous") so the auth cookie is still sent to the cookie-
           protected /media route; the backend reflects the origin and sets
-          Access-Control-Allow-Credentials, so playback is unaffected. */}
+          Access-Control-Allow-Credentials, so playback is unaffected.
+          No src prop: useMediaElement owns it, and re-setting it breaks
+          background auto-advance on iOS. */}
       <audio
         ref={audioRef}
-        src={mediaSrc}
         crossOrigin="use-credentials"
         autoPlay
         preload="metadata"
