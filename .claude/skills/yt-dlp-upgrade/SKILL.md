@@ -186,16 +186,36 @@ message which releases were reviewed and why nothing else moved.
 ## Open upstream threads
 
 Re-check each on the next bump; delete what is resolved and add what that bump's threads raise.
-Current as of 2026.10.21 (reviewed 2026-10-25).
+Current as of 2026.11.23 (reviewed 2026-11-26).
 
+- **`web` left the anonymous list only for now.** bashonly, in #18131: `web` "provides no benefit
+  out-of-the-box as a default client for unauthenticated users", and the STS workaround (#18126)
+  makes it "needlessly adding a player request"; it is out of `_DEFAULT_CLIENTS` "temporarily until
+  f31e4c2 and b2e6bb0 are reverted". Open PR #18135 ("Rework player JS handling": `tcl` variants,
+  8-digit STS) is what replaces that workaround. When a release reverts it, expect `web` back in
+  `_DEFAULT_CLIENTS`. Then re-add it to `DEFAULT_PLAYER_CLIENTS` and ship a migration
+  (`drop_anonymous_web_client` dropped it).
+- **The STS truncation is a stopgap with a known failure mode.** Its code comment: "If clients other
+  than tv_downgraded start seeing 'the page needs to be reloaded' errors, this STS truncation is the
+  likely culprit! Revert it!". The default `player_js_variant` also moved `main` → `tv` (#18124),
+  because YouTube's 2026-11-23 player broke `main`'s n challenge (#18123).
 - **`tv_samsung` is a workaround.** YouTube forces the TCL player-JS variant on TV clients, which
   breaks `tv_downgraded` ("The page needs to be reloaded", #17389); `tv_samsung`'s device details
-  dodge it, and a maintainer called it "a temporary solution until EJS is fixed" (#17723). If
-  yt-dlp-ejs learns the variant, `tv_downgraded` may recover and `tv_samsung` may be dropped. It
-  leads the anonymous list and is second in the cookie list.
+  dodge it, and a maintainer called it "a temporary solution until EJS is fixed" (#17723). #18135
+  adds the `tcl`/8-digit STS support ejs#77 needs. Once both land, `tv_downgraded` may recover and
+  `tv_samsung` may be dropped. It leads both lists.
+- **`web_embedded` needs a PO token under a YouTube experiment** (#17989): "one of Youtube's beloved
+  A/B tests for making `web_embedded` po token only" (ruben1PvP). #18051 gave it the web PO-token
+  policies and moved it behind `tv_samsung` in `_DEFAULT_AUTHED_CLIENTS`. bgutil supplies the token,
+  which is why it stays in both lists. If YouTube rolls the experiment out fully and bgutil can't
+  keep up, it no longer earns its slots.
+- **`ios_producer` is a fallback, not a format source** (#17866). It has H.264/AAC only, at most
+  1080p60, no format 18, and "the poor audio support `android_vr` was known for" (ruben1PvP). yt-dlp
+  appends it by itself for made-for-kids videos `visionos` can't play when not logged in. So it is
+  selectable but not in the defaults. If upstream ever puts it in `_DEFAULT_CLIENTS`, read why first.
 - **`visionos`' PO-token flags are due to change.** bashonly, reviewing #17805: "we need to correct
-  `visionos`' POT flags and add `visionos_downgraded` next". `visionos` is second in the anonymous
-  list on the strength of needing no token.
+  `visionos`' POT flags and add `visionos_downgraded` next". Still unchanged in 2026.11.23.
+  `visionos` is second in the anonymous list on the strength of needing no token.
 - **#17666 (open): `mweb` and `web_embedded` are SABR-only in some sessions** (format 18 aside).
   `web_embedded`'s Safari UA (#17684) brings back HLS 91–96 there. Both are in the cookie list.
 - **`web_safari` HLS needs a "trusted" session since 2026.07**, per the comment over its

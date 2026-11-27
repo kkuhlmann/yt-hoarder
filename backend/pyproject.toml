@@ -23,7 +23,7 @@ dependencies = [
     "bcrypt>=5.0.0",
     "PyJWT>=2.13.0",
     "uvicorn>=0.52.3",
-    "yt-dlp[default,curl-cffi]>=2026.10.21",
+    "yt-dlp[default,curl-cffi]>=2026.11.23",
     "python-multipart>=0.0.32",
     "mcp>=2.3,<3",
 ]
