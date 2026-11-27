@@ -43,10 +43,11 @@ export const SETTINGS_CONFIG: SettingsConfig = {
       options: [
         { value: "tv_samsung", label: "tv_samsung" },
         { value: "visionos", label: "visionos" },
+        { value: "ios_producer", label: "ios_producer" },
         { value: "tv", label: "tv" },
-        { value: "web_embedded", label: "web_embedded" },
         { value: "web", label: "web" },
         { value: "web_safari", label: "web_safari" },
+        { value: "web_embedded", label: "web_embedded" },
         { value: "tv_simply", label: "tv_simply" },
         { value: "ios", label: "ios" },
         { value: "mweb", label: "mweb" },

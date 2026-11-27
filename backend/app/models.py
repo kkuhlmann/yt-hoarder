@@ -108,16 +108,21 @@ class SourceType(str, Enum):
 # Cookie support for age-restricted content:
 #   SUPPORTS cookies: web, web_safari, mweb, web_creator, web_embedded, web_music, tv, tv_samsung,
 #                     tv_downgraded
-#   NO cookie support: visionos, android_vr, android, ios, tv_simply
+#   NO cookie support: visionos, ios_producer, android_vr, android, ios, tv_simply
 VALID_PLAYER_CLIENTS = [
     # No PO token required
     'tv_samsung',  # No PO token, needs the JS player, cookie-capable
     'visionos',  # No PO token, no JS player either, no cookies support
+    # No PO token, JS player or cookies; H.264/AAC only, at most 1080p60. yt-dlp appends it by
+    # itself for made-for-kids videos visionos cannot play (yt-dlp PR #17866).
+    'ios_producer',
     'tv',  # No PO token, may have DRM
-    'web_embedded',  # No PO token, only embeddable videos; only HLS in SABR-only sessions
     # PO token supported (provided automatically by bgutil-pot)
     'web',  # PO token supported, only SABR formats
     'web_safari',  # PO token supported, HLS (m3u8) formats
+    # PO token required (GVS) since a YouTube experiment (yt-dlp #17989); only embeddable videos;
+    # only HLS in SABR-only sessions (yt-dlp #17666)
+    'web_embedded',
     'tv_simply',  # PO token required (GVS), no cookies support
     'ios',  # Requires iOSGuard PO token (not provided by bgutil-pot), no cookies support
     'mweb',  # PO token required (GVS), mobile web; SABR-only in some sessions (yt-dlp #17666)
@@ -135,20 +140,21 @@ VALID_PLAYER_CLIENTS = [
 # tv_samsung leads because it is yt-dlp's own first anonymous choice since 2026.10.21 and needs
 # no PO token, only the JS runtime the image ships. visionos follows as the only client needing
 # neither. The rest is depth yt-dlp's default does not carry: a PO-token client, an HLS client,
-# and an embed fallback.
+# and an embed fallback. web is left out, as yt-dlp 2026.11.23 left it out of its own default
+# (PR #18131): anonymously it offers only SABR formats, and while yt-dlp skips the webpage player
+# response it costs an extra player request. Upstream called that temporary.
 DEFAULT_PLAYER_CLIENTS = [
     'tv_samsung',
     'visionos',
     'tv_simply',
     'web_safari',
-    'web',
     'web_embedded',
 ]
 
 # Default player clients when cookies are active - only clients that support cookie-based age-gate
 # bypass, so visionos cannot lead here. Order follows yt-dlp's own authenticated default
-# (web_embedded, tv_samsung, web), then adds the two cookie-capable clients it leaves out.
-DEFAULT_COOKIES_PLAYER_CLIENTS = ['web_embedded', 'tv_samsung', 'web', 'web_safari', 'mweb']
+# (tv_samsung, web_embedded, web), then adds the two cookie-capable clients it leaves out.
+DEFAULT_COOKIES_PLAYER_CLIENTS = ['tv_samsung', 'web_embedded', 'web', 'web_safari', 'mweb']
 
 
 class User(SQLModel, table=True):

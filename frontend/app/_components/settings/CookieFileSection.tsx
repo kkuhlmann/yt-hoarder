@@ -35,8 +35,8 @@ const COOKIES_MODE_OPTIONS = [
 ] as const
 
 const COOKIES_PLAYER_CLIENT_OPTIONS: OptionMeta[] = [
-  { value: "web_embedded", label: "web_embedded", description: "Best for cookies, yt-dlp default" },
-  { value: "tv_samsung", label: "tv_samsung", description: "No PO token needed, supports age-gate" },
+  { value: "tv_samsung", label: "tv_samsung", description: "yt-dlp default; no PO token needed, supports age-gate" },
+  { value: "web_embedded", label: "web_embedded", description: "PO token in some sessions (bgutil supplies it); embeddable age-gate" },
   { value: "web", label: "web", description: "Browser cookies, supports age-gate" },
   { value: "web_safari", label: "web_safari", description: "Safari variant, supports age-gate" },
   { value: "mweb", label: "mweb", description: "Mobile web, supports age-gate" },

@@ -50,6 +50,11 @@ UNPLAYABLE`).** Since autumn 2026 YouTube serves some sessions a TV player that 
 cannot use. Remove `tv_downgraded` from both player-client lists under Settings; `tv_samsung` is
 its replacement and is already in the defaults. "Reset to defaults" does both.
 
+**"n challenge solving failed: a.addOnDisposeCallback is not a function", then "No video formats
+found!".** A YouTube player rolled out on 2026-11-23 that yt-dlp versions before 2026.11.23 cannot
+solve. It hits every video at once and has nothing to do with the player-client order or Deno.
+Update the image (`task update`, or `task prod` from source) to get a newer yt-dlp.
+
 **Stuck or orphaned tasks.** Task state lives entirely in PostgreSQL, so queued or interrupted tasks
 resume automatically after a restart. For a clean slate, cancel pending tasks from the Tasks tab, set
 `tasks.purge_on_startup: true` in `config.yml`, or run `task clean` for a full reset (deletes the
